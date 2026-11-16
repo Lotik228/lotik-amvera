@@ -1,7 +1,7 @@
 FROM node:24-slim
 WORKDIR /app
-COPY package.json LICENSE.Grovvik.txt *.mjs ./
-COPY public ./public
+COPY Lotik-Amvera/package.json Lotik-Amvera/LICENSE.Grovvik.txt Lotik-Amvera/*.mjs ./
+COPY Lotik-Amvera/public/ ./public/
 ENV NODE_ENV=production \
     LOTIK_CONTAINER=1 \
     LOTIK_EMBEDDED_PARSER=1 \

@@ -1,0 +1,7 @@
+meta:
+  environment: docker
+build:
+  dockerfile: Lotik-Amvera/Dockerfile.amvera
+run:
+  containerPort: 3000
+  persistenceMount: /data

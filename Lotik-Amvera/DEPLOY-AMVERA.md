@@ -2,7 +2,7 @@
 
 Архив для Amvera разворачивается как одно приложение Docker. В одном процессе Node.js работают сайт, Mini App, Telegram webhook и фоновый парсер. SQLite доступна тому же процессу. Используйте одну реплику. Файлы для отдельного развёртывания на Ubuntu остаются в исходном проекте.
 
-В корне загрузки должны лежать `amvera.yaml`, `Dockerfile.amvera`, файлы `*.mjs` и папка `public`. Выберите окружение **Docker**, порт контейнера **3000** и постоянное хранилище **/data**. Эти значения уже записаны в `amvera.yaml`. Lotik использует Node.js 24 и стандартный модуль `node:sqlite`. Для сборки не нужны сторонние npm- или Python-пакеты. [Настройка Docker в Amvera](https://docs.amvera.ru/applications/configuration/docker.html).
+В корне репозитория положите `amvera.yaml`, а файлы приложения и `Dockerfile.amvera` храните в папке `Lotik-Amvera/`. `build.dockerfile` указывает на `Lotik-Amvera/Dockerfile.amvera`. Контекст сборки — корень репозитория. Порт 3000 и постоянное хранилище /data уже заданы в конфигурации. [Настройка Docker в Amvera](https://docs.amvera.ru/applications/configuration/docker.html).
 
 ## Первый запуск
 
