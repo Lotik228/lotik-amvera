@@ -1,10 +1,11 @@
 const tg = window.Telegram?.WebApp;
 const web = document.body.classList.contains('web');
+const initData = tg?.initData || '';
 tg?.ready();
 tg?.expand();
 
 const $ = id => document.getElementById(id);
-const state = { profile: null, page: 'watch-view', feedPage: 0, savedPage: 0, watchPage: 1, requests: {} };
+const state = { profile: null, page: null, feedPage: 0, savedPage: 0, watchPage: 1, requests: {} };
 const money = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 const dateFormat = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium' });
 const shortTime = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
@@ -23,7 +24,7 @@ function avitoSearchLink() {
 }
 
 function openAvitoSearch(url) {
-  if (tg?.initData && tg.openLink) tg.openLink(url);
+  if (initData && tg.openLink) tg.openLink(url);
   else window.open(url, '_blank', 'noopener,noreferrer');
 }
 
@@ -52,12 +53,21 @@ async function api(path, method = 'GET', data) {
   const response = await fetch((web ? '/web/api/' : '/api/') + path, {
     method,
     headers: {
-      ...(!web && { 'X-Telegram-Init-Data': tg?.initData || '' }),
+      ...(!web && { 'X-Telegram-Init-Data': initData }),
       ...(data && { 'Content-Type': 'application/json' }),
     },
     body: data ? JSON.stringify(data) : undefined,
   });
   const result = await response.json();
+  if (!web && response.status === 401) {
+    state.profile = null;
+    state.page = null;
+    state.requests = {};
+    for (const view of document.querySelectorAll('.view')) view.hidden = true;
+    $('nav').hidden = true;
+    $('avatar').hidden = true;
+    notice(result.error);
+  }
   if (!response.ok) throw new Error(result.error);
   return result;
 }
@@ -108,22 +118,8 @@ async function loadWatches() {
     return;
   }
   state.watchSnapshot = snapshot;
-  $('watch-url').disabled = !data.enabled;
-  $('watch-submit').disabled = !data.enabled || Boolean(state.addingWatch);
-  $('watch-plan-label').textContent = data.plans ? 'Интервал проверки в демо' : data.plan.name + ' · проверка через каждые ' + data.plan.label;
+  $('watch-plan-label').textContent = data.plan.name + ' · проверка через каждые ' + data.plan.label;
   $('watch-summary').textContent = data.enabled ? '' : 'Ожидает подключения источника Авито.';
-  const choices = Object.entries(data.plans ?? {}).map(([key, plan]) => {
-    const button = element('button', 'secondary', plan.name + ' · ' + plan.label);
-    button.type = 'button';
-    button.setAttribute('aria-pressed', plan.seconds === data.plan.seconds);
-    button.addEventListener('click', () => run(async () => {
-      await api('watches', 'PUT', { plan: key });
-      await loadWatches();
-      watchMessage('Интервал проверки установлен на ' + plan.label + '.');
-    }));
-    return button;
-  });
-  $('watch-plans').replaceChildren(...choices);
   const cards = data.rows.map(row => {
     const card = element('article', 'card watch-row');
     const info = element('div', '');
@@ -159,16 +155,21 @@ async function loadWatches() {
 }
 
 async function trackLink() {
-  if (state.addingWatch || $('watch-url').disabled) return;
+  if (state.addingWatch) return;
   const field = $('watch-url');
   const url = field.value.trim();
   if (!url) return;
   state.addingWatch = true;
   $('watch-submit').disabled = true;
-  watchMessage('Добавляем объявление…');
+  watchMessage('Добавляем ссылку…');
   try {
     const result = await api('watches', 'POST', { url });
     if (field.value.trim() === url) field.value = '';
+    if (result.kind === 'search') {
+      await loadSavedSearches();
+      watchMessage('Поиск сохранён. Он отображается в списке отслеживания поиска.');
+      return;
+    }
     state.watchPage = 1;
     await loadWatches();
     watchMessage(result.added ? 'Отслеживание включено.' : 'Это объявление уже отслеживается.');
@@ -176,7 +177,7 @@ async function trackLink() {
     watchMessage(error.message, true);
   } finally {
     state.addingWatch = false;
-    $('watch-submit').disabled = $('watch-url').disabled;
+    $('watch-submit').disabled = false;
   }
 }
 
@@ -236,7 +237,7 @@ async function loadSavedSearches() {
     } else {
       card.append(element('h3', '', row.query));
     }
-    const location = row.source_url ? (data.fixture ? 'Тестовый источник' : '') : data.cities[row.city];
+    const location = row.source_url ? '' : data.cities[row.city];
     const sourceEnabled = row.source_url ? data.linkEnabled : data.enabled;
     const price = row.max_price ? ' · до ' + money.format(row.max_price) + ' ₽' : '';
     const status = !sourceEnabled ? 'ждёт подключения источника'
@@ -303,12 +304,10 @@ function adCard(ad) {
   const icon = element('span', 'ad-icon', categories[ad.category] || '◇');
   icon.setAttribute('aria-hidden', 'true');
   const info = element('div', 'ad-info');
-  const demo = state.profile.mode === 'demo';
   const title = element('a', 'ad-title', ad.title + ' ↗');
   title.href = ad.url;
   title.target = '_blank';
   title.rel = 'noopener noreferrer';
-  if (demo) title.title = 'В демо открывается категория Авито';
   if (tg?.initData && tg.openLink) title.addEventListener('click', event => {
     event.preventDefault();
     tg.openLink(ad.url);
@@ -399,11 +398,9 @@ async function loadAds(saved = false, append = false) {
 async function refreshProfile() {
   state.profile = await api('me');
   const profile = state.profile;
-  const demo = profile.mode === 'demo';
   const signedOut = web && !profile.signedIn;
-  $('mode').hidden = !demo;
-  $('nav').hidden = signedOut && !demo;
-  $('avatar').hidden = signedOut && !demo;
+  $('nav').hidden = signedOut;
+  $('avatar').hidden = signedOut;
   if (signedOut) {
     $('avatar').textContent = '→';
     return;
@@ -420,16 +417,14 @@ async function refreshProfile() {
   $('owner').hidden = !profile.isOwner;
   $('check-payment').hidden = !profile.pendingPayment;
   $('subscribe').disabled = Boolean(profile.expiresAt) || !profile.canSubscribe;
-  $('subscribe').textContent = profile.expiresAt ? 'Лотик Pro активен' : demo ? 'Проверить оплату в демо' : 'Оплатить картой';
-  $('payment-status').textContent = demo ? 'Демо активирует подписку без списания денег.'
-    : !profile.canSubscribe ? 'Оплата пока недоступна.'
-      : profile.testPayments ? 'Тестовый магазин ЮKassa.' : 'Защищённая платёжная страница ЮKassa. Продление вручную.';
+  $('subscribe').textContent = profile.expiresAt ? 'Лотик Pro активен' : 'Оплатить картой';
+  $('payment-status').textContent = !profile.canSubscribe ? 'Оплата пока недоступна.'
+    : profile.testPayments ? 'Тестовый магазин ЮKassa.' : 'Защищённая платёжная страница ЮKassa. Продление вручную.';
 }
 
 async function openPage(page) {
   if (!state.profile || page === 'account' || page === 'plans') await refreshProfile();
-  if (web && !state.profile.signedIn
-    && (state.profile.mode !== 'demo' || !['watch-view', 'feed'].includes(page))) page = 'login-view';
+  if (web && !state.profile.signedIn) page = 'login-view';
   state.page = page;
   notice('');
   for (const view of document.querySelectorAll('.view')) view.hidden = view.id !== page;
@@ -451,9 +446,8 @@ async function openPage(page) {
     $('accounts').textContent = money.format(owner.accounts);
     $('api-daily').textContent = money.format(owner.budget.today) + ' / ' + money.format(owner.budget.daily);
     $('api-monthly').textContent = money.format(owner.budget.month) + ' / ' + money.format(owner.budget.monthly);
-    $('source').textContent = state.profile.mode === 'demo' ? 'Демо'
-      : owner.liveFeed && owner.lastSync ? shortTime.format(owner.lastSync)
-        : owner.liveFeed ? 'Ожидает загрузки' : 'Не подключён';
+    $('source').textContent = owner.liveFeed && owner.lastSync ? shortTime.format(owner.lastSync)
+      : owner.liveFeed ? 'Ожидает загрузки' : 'Не подключён';
   }
 }
 
@@ -560,7 +554,7 @@ $('subscribe').addEventListener('click', () => run(async () => {
   try {
     const result = await api('subscribe', 'POST');
     if (result.checkoutUrl) return window.location.assign(result.checkoutUrl);
-    if (result.demo || result.paid) await refreshProfile();
+    if (result.paid) await refreshProfile();
     if (result.canceled) notice('Платёж отменён. Вы можете попробовать ещё раз.');
   } finally {
     $('subscribe').disabled = Boolean(state.profile.expiresAt) || !state.profile.canSubscribe;
@@ -608,6 +602,10 @@ $('login-form').addEventListener('submit', event => {
 });
 
 run(async () => {
+  if (!web && !initData) {
+    notice('Откройте Лотик из меню бота в Telegram.');
+    return;
+  }
   await refreshProfile();
   if (web && state.profile.signedIn && new URLSearchParams(window.location.search).get('payment') === 'return') {
     await openPage('account');

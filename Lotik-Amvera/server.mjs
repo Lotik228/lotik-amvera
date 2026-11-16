@@ -3,14 +3,14 @@ import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { openStore, cardAccess } from './store.mjs';
 import { readConfig } from './config.mjs';
-import { demoFeed, refreshFeed, saveFeed } from './feed.mjs';
+import { refreshFeed } from './feed.mjs';
 import { telegramClient, verifyInitData } from './telegram.mjs';
 import { handleBotUpdate } from './bot.mjs';
-import { createLookup, demoLookup, hasLookup, startWatchWorker } from './watch-worker.mjs';
+import { createLookup, hasLookup, startWatchWorker } from './watch-worker.mjs';
 import { createMarketSearch, marketCities } from './market-search.mjs';
 import { apiBudgetStatus, budgetedFetch } from './api-budget.mjs';
-import { createSearchLookup, createSearchWorker, deleteSearch, demoSearchLookup, listSavedSearches, saveSearch } from './saved-searches.mjs';
-import { addWatches, listWatches, parseListingLink, plans, removeWatch, setPlan, userPlan, watchStatus } from './watches.mjs';
+import { createSearchLookup, createSearchWorker, deleteSearch, listSavedSearches, parseSearchUrl, saveSearch } from './saved-searches.mjs';
+import { addWatches, listWatches, parseListingLink, removeWatch, userPlan, watchStatus } from './watches.mjs';
 import { endSession, getAccount, signIn, startSession } from './accounts.mjs';
 import { checkout, confirmPending, createYooKassaClient, handlePaymentWebhook, pendingOrder } from './payments.mjs';
 import { runParser } from './parser-loop.mjs';
@@ -22,16 +22,21 @@ const db = openStore(config.dataDir);
 const embeddedParser = process.env.LOTIK_EMBEDDED_PARSER === '1' && config.parserMode !== 'off';
 if (embeddedParser) initializeParserStorage(db, config.parserMode);
 const telegram = telegramClient(config.token, config.telegramTest);
-const cardApi = config.production && config.shopId && createYooKassaClient(config);
-const testPayments = !config.production || config.paymentTest;
-const envLabel = config.production ? 'production' : 'demo';
+const cardApi = config.shopId && createYooKassaClient(config);
+const testPayments = config.paymentTest;
+const findTelegramUser = db.prepare('SELECT 1 FROM users WHERE id = ?');
+const saveTelegramUser = db.prepare(`
+  INSERT INTO users (id, name, username) VALUES (?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET name = excluded.name, username = excluded.username
+  WHERE users.name IS NOT excluded.name OR users.username IS NOT excluded.username
+`);
 const authAttempts = new Map();
 const apiFetch = budgetedFetch(db, config);
-const marketSearch = config.production && config.searchKey ? createMarketSearch(config.searchKey, apiFetch) : null;
-const searchLookup = !config.production ? demoSearchLookup : config.searchKey ? createSearchLookup(config.searchKey, apiFetch) : null;
-const watchLookup = !config.production ? demoLookup : hasLookup(config) ? createLookup(config, apiFetch) : null;
+const marketSearch = config.searchKey ? createMarketSearch(config.searchKey, apiFetch) : null;
+const searchLookup = config.searchKey ? createSearchLookup(config.searchKey, apiFetch) : null;
+const watchLookup = hasLookup(config) ? createLookup(config, apiFetch) : null;
 if (watchLookup || searchLookup || config.parserMode === 'live') {
-  startWatchWorker(db, watchLookup, config.token ? telegram : null, searchLookup ? createSearchWorker(db, searchLookup) : null);
+  startWatchWorker(db, watchLookup, telegram, searchLookup ? createSearchWorker(db, searchLookup) : null);
 }
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -41,8 +46,7 @@ const assets = new Map([
   ['/lotik-logo.jpg', ['lotik-logo.jpg', 'image/jpeg']],
 ]);
 
-if (!config.production) saveFeed(db, demoFeed());
-if (config.production && config.feedUrl) {
+if (config.feedUrl) {
   let refreshing = false;
   const sync = async () => {
     if (refreshing) return;
@@ -83,12 +87,12 @@ function matchesSecret(value, secret) {
 }
 
 function canCheckout() {
-  return !config.production || Boolean(config.cardCheckoutEnabled && cardApi && (marketSearch || (config.feedUrl && feedState())));
+  return Boolean(config.cardCheckoutEnabled && cardApi && (marketSearch || (config.feedUrl && feedState())));
 }
 
 function searchProfile() {
   return {
-    searchMode: marketSearch ? 'market' : config.production && config.feedUrl ? 'snapshot' : 'external',
+    searchMode: marketSearch ? 'market' : config.feedUrl ? 'snapshot' : 'external',
     searchCities: marketCities,
   };
 }
@@ -106,20 +110,19 @@ function checkAuthRate(req, now) {
 function webProfile(account, now) {
   const access = account && cardAccess(db, account.id, now, testPayments);
   return {
-    name: account?.email, mode: envLabel, signedIn: Boolean(account), price: config.price, support: config.support,
+    name: account?.email, signedIn: Boolean(account), price: config.price, support: config.support,
     expiresAt: access?.expires_at ?? null, canSubscribe: canCheckout() && Boolean(account),
     testPayments, pendingPayment: Boolean(account && pendingOrder(db, account.id, testPayments)), ...searchProfile(),
   };
 }
 
-async function watchRoute(req, res, url, userId, now) {
-  const id = config.production ? userId : 0;
-  const enabled = !config.production || hasLookup(config);
+async function watchRoute(req, res, url, id, now) {
+  const enabled = Boolean(watchLookup);
   if (req.method === 'GET') {
     const page = Math.max(1, Math.min(100000, parseInt(url.searchParams.get('page'), 10) || 1));
     const { rows, hasNext } = listWatches(db, id, page);
     return json(res, 200, {
-      plan: userPlan(db, id), plans: config.production ? null : plans, enabled, hasNext, now,
+      plan: userPlan(db, id), enabled, hasNext, now,
       rows: rows.map(row => ({
         id: row.listing_id, url: row.url, dueAt: row.due_at, checkedAt: row.checked_at,
         title: row.last_title, status: watchStatus(row),
@@ -127,10 +130,18 @@ async function watchRoute(req, res, url, userId, now) {
     });
   }
   if (req.method === 'POST') {
-    if (!enabled) return json(res, 409, { error: 'Источник Авито ещё не подключён.' });
     const input = await body(req);
-    const listing = parseListingLink(input?.url);
-    if (!listing) return json(res, 400, { error: 'Вставьте прямую ссылку на объявление Авито.' });
+    const sourceUrl = parseSearchUrl(input?.url);
+    if (sourceUrl) {
+      saveSearch(db, id, { sourceUrl, newEnabled: true, dropEnabled: false }, now,
+        { linkEnabled: config.parserMode !== 'off' });
+      return json(res, 200, { kind: 'search' });
+    }
+    const value = typeof input?.url === 'string' ? input.url.trim() : '';
+    const listing = /^(?:https:\/\/)?(?:www\.|m\.)?avito\.ru\//i.test(value) && !/[\s\\\p{Cc}]/u.test(value)
+      ? parseListingLink(value) : null;
+    if (!listing) return json(res, 400, { error: 'Вставьте HTTPS-ссылку на поиск или объявление Авито.' });
+    if (!enabled) return json(res, 409, { error: 'Источник Авито ещё не подключён.' });
     const added = addWatches(db, id, [listing], now) === 1;
     return json(res, 200, { added });
   }
@@ -139,20 +150,14 @@ async function watchRoute(req, res, url, userId, now) {
     if (removeWatch(db, id, input?.id) !== true) return json(res, 404, { error: 'Объявление уже снято с отслеживания.' });
     return json(res, 200, { ok: true });
   }
-  if (req.method === 'PUT' && !config.production) {
-    const input = await body(req);
-    if (!setPlan(db, id, input?.plan, now)) return json(res, 400, { error: 'Неизвестный тариф.' });
-    return json(res, 200, { ok: true });
-  }
   return json(res, 405, { error: 'Действие недоступно.' });
 }
 
-async function searchWatchRoute(req, res, userId, now) {
-  const id = config.production ? userId : 0;
+async function searchWatchRoute(req, res, id, now) {
   const enabled = Boolean(searchLookup);
   const linkEnabled = config.parserMode !== 'off';
   if (req.method === 'GET') return json(res, 200, {
-    enabled, linkEnabled, fixture: config.parserMode === 'fixture',
+    enabled, linkEnabled,
     parserPaused: linkEnabled && Boolean(db.prepare('SELECT paused_reason FROM parser_state WHERE id = 1').get().paused_reason),
     plan: userPlan(db, id), cities: marketCities, rows: listSavedSearches(db, id),
   });
@@ -185,6 +190,7 @@ function listings(userId, hasPro, params) {
   const list = db.prepare(`
     SELECT listings.*, favorites.ad_id IS NOT NULL AS saved
     FROM ${source} AS listings LEFT JOIN favorites ON favorites.ad_id = listings.id AND favorites.user_id = ?
+    WHERE length(listings.id) >= 5
     ORDER BY ${sort}, listings.id
   `).all(userId);
   const filtered = list.filter(ad =>
@@ -230,14 +236,14 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { status: 'ok' });
     if (req.method === 'POST' && url.pathname === '/telegram/webhook') {
-      if (!config.production || !config.token || !matchesSecret(req.headers['x-telegram-bot-api-secret-token'], config.secret)) {
+      if (!matchesSecret(req.headers['x-telegram-bot-api-secret-token'], config.secret)) {
         return json(res, 403, { error: 'Доступ закрыт.' });
       }
       await handleBotUpdate(db, telegram, config, await body(req), now);
       return json(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url.pathname.startsWith('/payments/yookassa/')) {
-      if (!config.production || !cardApi || !matchesSecret(url.pathname.slice('/payments/yookassa/'.length), config.paymentSecret)) {
+      if (!cardApi || !matchesSecret(url.pathname.slice('/payments/yookassa/'.length), config.paymentSecret)) {
         return json(res, 403, { error: 'Доступ закрыт.' });
       }
       await handlePaymentWebhook(db, cardApi, await body(req));
@@ -245,8 +251,7 @@ const server = createServer(async (req, res) => {
     }
     if (!route.startsWith('/api/')) return json(res, 404, { error: 'Страница не найдена.' });
     if (web && req.method !== 'GET') {
-      const expected = config.production ? config.webUrl : 'http://' + req.headers.host;
-      if (req.headers.origin !== expected) return json(res, 403, { error: 'Откройте сайт напрямую.' });
+      if (req.headers.origin !== config.webUrl) return json(res, 403, { error: 'Откройте сайт напрямую.' });
     }
     let account;
     if (web) {
@@ -254,33 +259,34 @@ const server = createServer(async (req, res) => {
       if (req.method === 'POST' && ['/api/register', '/api/login'].includes(route)) {
         if (!checkAuthRate(req, now)) return json(res, 429, { error: 'Слишком много попыток. Попробуйте через минуту.' });
         const accountId = await signIn(db, await body(req), route === '/api/register');
-        startSession(db, req, res, accountId, now, config.production);
+        startSession(db, req, res, accountId, now, true);
         return json(res, 200, { ok: true });
       }
       if (req.method === 'POST' && route === '/api/logout') {
-        endSession(db, req, res, config.production);
+        endSession(db, req, res, true);
         return json(res, 200, { ok: true });
       }
       if (req.method === 'GET' && route === '/api/me') return json(res, 200, webProfile(account, now));
-      if (!account && (config.production || !['/api/watches', '/api/search-watches'].includes(route))) {
+      if (!account) {
         return json(res, 401, { error: 'Войдите в личный кабинет.' });
       }
     }
-    const user = web ? { id: account ? -account.id : 0 } : config.production
-      ? config.token && verifyInitData(req.headers['x-telegram-init-data'], config.token, now)
-      : { id: 1, first_name: 'Демо-пользователь', username: 'demo' };
+    const user = web ? { id: -account.id } : verifyInitData(req.headers['x-telegram-init-data'], config.token, now);
     if (!user) return json(res, 401, { error: 'Откройте приложение заново из меню Telegram.' });
+    const name = web ? account.email : [user.first_name, user.last_name].filter(Boolean).join(' ');
+    const username = user.username ?? null;
+    if (!web && (route === '/api/me' || !findTelegramUser.get(user.id))) {
+      saveTelegramUser.run(user.id, name, username);
+    }
     if (route === '/api/watches') return await watchRoute(req, res, url, user.id, now);
     if (route === '/api/search-watches') return await searchWatchRoute(req, res, user.id, now);
-    const isOwner = !web && (!config.production || user.id === config.owner);
+    const isOwner = !web && user.id === config.owner;
     const active = web && cardAccess(db, account.id, now, testPayments);
     const hasPro = Boolean(active);
 
     if (req.method === 'GET' && route === '/api/me') {
-      db.prepare('INSERT INTO users VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, username = excluded.username')
-        .run(user.id, user.first_name, user.username ?? null);
       return json(res, 200, {
-        name: user.first_name, username: user.username, isOwner, mode: envLabel, support: config.support, ...searchProfile(),
+        name, username, isOwner, support: config.support, ...searchProfile(),
       });
     }
     if (req.method === 'GET' && route === '/api/feed') {
@@ -295,7 +301,7 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'PUT' && route === '/api/favorite') {
       const input = await body(req);
-      if (typeof input?.id !== 'string' || !/^\d{1,32}$/.test(input.id) || typeof input.saved !== 'boolean') {
+      if (typeof input?.id !== 'string' || !/^\d{5,32}$/.test(input.id) || typeof input.saved !== 'boolean') {
         return json(res, 400, { error: 'Некорректное объявление.' });
       }
       if (input.saved) {
@@ -325,7 +331,7 @@ const server = createServer(async (req, res) => {
       `).get().total;
       return json(res, 200, {
         netRub: netMinor / 100, accounts: db.prepare('SELECT COUNT(*) AS count FROM web_accounts').get().count,
-        liveFeed: config.production && Boolean(config.feedUrl), lastSync: feedState(),
+        liveFeed: Boolean(config.feedUrl), lastSync: feedState(),
         budget: apiBudgetStatus(db, config),
       });
     }
@@ -338,8 +344,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(config.port, config.host, () => {
-  const address = config.production ? '127.0.0.1' : config.host;
-  console.log('Лотик · ' + envLabel + ' · http://' + address + ':' + server.address().port);
+  console.log('Лотик · http://127.0.0.1:' + server.address().port);
   if (!embeddedParser) return;
   const now = () => Math.floor(Date.now() / 1000);
   let stopping = false;

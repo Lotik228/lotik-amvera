@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import test from 'node:test';
 import { signIn } from './accounts.mjs';
+import { readConfig } from './config.mjs';
 import { ACCESS_SECONDS, checkout, handlePaymentWebhook } from './payments.mjs';
 import { normalizeFeed, saveFeed } from './feed.mjs';
 import { cardAccess, openStore } from './store.mjs';
@@ -9,15 +10,35 @@ import { verifyInitData } from './telegram.mjs';
 
 test('Telegram login requires a valid fresh signature and rejects modified identities', () => {
   const now = 1_700_000_000;
-  const token = '123456:secret_token';
-  const data = new URLSearchParams({ user: '{"first_name":"Тест","id":42}', auth_date: String(now) });
+  const token = '123456:' + randomBytes(16).toString('hex');
+  const user = { first_name: 'Анна', last_name: 'Петрова', username: 'anna_test', id: 42 };
+  const data = new URLSearchParams({ user: JSON.stringify(user), auth_date: String(now), signature: 'test_ed25519_field' });
   const key = createHmac('sha256', 'WebAppData').update(token).digest();
-  const hash = createHmac('sha256', key).update('auth_date=' + now + '\nuser=' + data.get('user')).digest('hex');
+  const hash = createHmac('sha256', key)
+    .update('auth_date=' + now + '\nsignature=' + data.get('signature') + '\nuser=' + data.get('user')).digest('hex');
   data.set('hash', hash);
-  assert.equal(verifyInitData(data.toString(), token, now)?.id, 42);
+  assert.deepEqual(verifyInitData(data.toString(), token, now), user);
+  assert.equal(verifyInitData(data.toString(), undefined, now), null);
+  assert.equal(verifyInitData(data.toString(), token + 'wrong', now), null);
+  assert.equal(verifyInitData(data + '&user=%7B%7D', token, now), null);
+  assert.equal(verifyInitData(data.toString(), token, now - 31), null);
   assert.equal(verifyInitData(data.toString(), token, now + 3601), null);
   data.set('user', '{"first_name":"Тест","id":15}');
   assert.equal(verifyInitData(data.toString(), token, now), null);
+});
+
+test('requires a bot token and keeps Amvera SQLite on the mounted volume', () => {
+  const env = {
+    AMVERA: '1', BOT_TOKEN: '123456:' + randomBytes(16).toString('hex'),
+    WEBHOOK_SECRET: randomBytes(16).toString('hex'), OWNER_TELEGRAM_ID: '42',
+    SUPPORT_CONTACT: '@support', PUBLIC_URL: 'https://lotik.example.test',
+  };
+  assert.equal(readConfig(env).dataDir, '/data');
+  assert.equal(readConfig({ ...env, DATA_DIR: '/data/lotik' }).dataDir, '/data/lotik');
+  assert.throws(() => readConfig({ ...env, DATA_DIR: '/data/../app/data' }), /DATA_DIR must be/);
+  assert.throws(() => readConfig({ ...env, BOT_TOKEN: '' }), /BOT_TOKEN/);
+  assert.throws(() => readConfig({ ...env, MODE: 'demo' }), /MODE=production/);
+  assert.throws(() => readConfig({ ...env, PARSER_MODE: 'fixture' }), /Fixture mode/);
 });
 
 test('feed keeps canonical Avito links and deduplicates by Avito ID', () => {

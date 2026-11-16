@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { apiBudgetStatus, budgetedFetch } from './api-budget.mjs';
-import { createSearchLookup, createSearchWorker, listSavedSearches, saveSearch } from './saved-searches.mjs';
+import { createSearchLookup, createSearchWorker, listSavedSearches, parseSearchUrl, saveSearch } from './saved-searches.mjs';
 import { openStore } from './store.mjs';
 import { createWatchWorker } from './watch-worker.mjs';
 import { addWatches, parseListingLink, setPlan } from './watches.mjs';
@@ -12,10 +12,10 @@ const search = { query: 'iPhone 15', city: 'moskva', maxPrice: 0 };
 
 test('saves an Avito search link once per user without scheduling a lookup', async () => {
   const db = openStore(':memory:');
-  const sourceUrl = 'https://www.avito.ru/moskva/telefony?q=iPhone+15&localPriority=1';
+  const sourceUrl = 'https://www.avito.ru/moskva/telefony?q=iPhone%2015&localPriority=1&utm_source=test#results';
   const input = { sourceUrl, newEnabled: true, dropEnabled: true };
   saveSearch(db, 1, input, 200);
-  saveSearch(db, 1, { ...input, sourceUrl: sourceUrl + '&utm_source=test#results' }, 201);
+  saveSearch(db, 1, input, 201);
   assert.throws(() => saveSearch(db, 1, { ...input, sourceUrl: url('1234567890') }, 201), { status: 400 });
   assert.throws(() => saveSearch(db, 1, { ...input, sourceUrl: 'https://www.avito.ru.example.org/moskva/telefony' }, 201), { status: 400 });
   const [row] = listSavedSearches(db, 1);
@@ -28,6 +28,37 @@ test('saves an Avito search link once per user without scheduling a lookup', asy
   await createSearchWorker(db, async () => assert.fail('Saved links must wait for a source'), () => 360)();
   assert.equal(listSavedSearches(db, 1)[0].checked_at, null);
   db.close();
+});
+
+test('accepts search links across categories and preserves the complete URL', () => {
+  const db = openStore(':memory:');
+  const links = [
+    'https://www.avito.ru/moskva/avtomobili/toyota-ASgBAg?priceMax=1800000&s=104&f=ASgBA%2B%2f',
+    'https://avito.ru/kazan/telefony/mobilnye_telefony?q=iPhone%2015&s=104&localPriority=1',
+    'https://m.avito.ru/sankt-peterburg/kvartiry/prodam?priceMin=5000000&priceMax=8000000&params%5B1%5D=2',
+    'https://www.avito.ru/ekaterinburg/odezhda_obuv_aksessuary/zhenskaya_odezhda?q=%D0%BF%D0%B0%D0%BB%D1%8C%D1%82%D0%BE&f=1&f=2#results',
+    'https://www.avito.ru/rossiya/kollektsionirovanie',
+    'https://www.avito.ru/?q=велосипед&s=104',
+    'https://www.avito.ru/moskva/avtomobili?f=' + 'A'.repeat(2500),
+  ];
+  for (const sourceUrl of links) {
+    assert.equal(parseSearchUrl(' ' + sourceUrl + ' '), sourceUrl);
+    saveSearch(db, 1, { sourceUrl, newEnabled: true, dropEnabled: false }, 200);
+  }
+  assert.deepEqual(listSavedSearches(db, 1).map(row => row.source_url), [...links].reverse());
+  db.close();
+});
+
+test('rejects unsafe URLs, listing details and non-catalog Avito pages as searches', () => {
+  for (const value of [
+    'javascript:alert(1)', 'http://avito.ru/moskva/avtomobili', '//avito.ru/moskva/avtomobili',
+    'https://www.avito.ru.example.org/moskva/telefony', 'https://www.avito.ru@evil.example/moskva/telefony',
+    'https://name@avito.ru/moskva/telefony', 'https://avito.ru:1234/moskva/telefony',
+    'https://avito.ru/redirect?url=https://example.org', 'https://avito.ru/profile',
+    'https://avito.ru/moskva/%2e%2e/profile', 'https://avito.ru/moskva%2ftelefony',
+    'https://avito.ru/moskva//telefony', 'https://avito.ru/', url('1234567890'),
+    'https://avito.ru/moskva/phone_%31%32%33%34%35%36', 'https://avito.ru/moskva/telefony?q=%GG',
+  ]) assert.equal(parseSearchUrl(value), null, value);
 });
 
 test('shares a search across tariffs and delivers only enabled changes at each cadence', async () => {

@@ -81,15 +81,6 @@ export async function confirmPending(db, call, order) {
 }
 
 export async function checkout(db, config, call, account, now) {
-  if (!config.production) {
-    const id = randomUUID();
-    db.prepare(`
-      INSERT INTO card_orders (id, account_id, amount_minor, created_at, attempt_json, status, paid_at, expires_at, is_test)
-      VALUES (?, ?, ?, ?, '{}', 'succeeded', ?, ?, 1)
-    `).run(id, account.id, config.price * 100, now, now, now + ACCESS_SECONDS);
-    return { demo: true };
-  }
-
   const order = pendingOrder(db, account.id, config.paymentTest) ?? newOrder(db, config, account, now);
   if (!order.payment_id && now - order.created_at >= RETRY_SECONDS) {
     throw Object.assign(new Error('Статус предыдущей оплаты требует проверки. Свяжитесь с поддержкой.'), { status: 409 });

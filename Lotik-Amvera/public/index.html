@@ -14,25 +14,24 @@
   <div class="shell">
     <header class="top">
       <div class="brand"><img src="/lotik-logo.jpg" width="1280" height="1280" alt="Лотик"></div>
-      <div class="top-right"><span class="mode" id="mode" hidden>Деморежим</span><button id="avatar" type="button" class="avatar" aria-label="Личный кабинет">●</button></div>
+      <div class="top-right"><button id="avatar" type="button" class="avatar" aria-label="Личный кабинет" hidden>●</button></div>
     </header>
     <main>
       <p id="notice" class="notice" role="status" hidden></p>
-      <section id="watch-view" class="view">
+      <section id="watch-view" class="view" hidden>
         <div class="hero">
-          <div class="hero-text"><h1>Отслеживание</h1><p>Вставьте ссылку на объявление Авито, чтобы следить за ценой и доступностью.</p></div>
+          <div class="hero-text"><h1>Отслеживание</h1><p>Вставьте ссылку на результаты поиска Авито или на отдельное объявление.</p></div>
           <div class="radar" aria-hidden="true"><i></i><i></i><i></i><b></b><b></b><span></span></div>
         </div>
         <form id="watch-form" class="filters">
-          <label for="watch-url">Ссылка на объявление</label>
+          <label for="watch-url">Ссылка на поиск или объявление Авито</label>
           <div class="search watch-input">
-            <input id="watch-url" name="url" type="text" inputmode="url" placeholder="https://www.avito.ru/…" autocapitalize="off" spellcheck="false" required>
+            <input id="watch-url" name="url" type="text" inputmode="url" placeholder="https://www.avito.ru/…" autocapitalize="off" spellcheck="false" maxlength="8192" required>
             <button id="watch-submit" class="primary" type="submit">Отслеживать</button>
           </div>
         </form>
         <div id="watch-plan" class="watch-plan">
           <p id="watch-plan-label" class="helper"></p>
-          <div id="watch-plans" class="watch-plans" aria-label="Тариф для демо" role="group"></div>
         </div>
         <p id="watch-status" class="watch-message" role="status" hidden></p>
         <div class="section-head watch-header"><div><h2>Отслеживаемые объявления</h2><p id="watch-summary"></p></div></div>
@@ -50,7 +49,7 @@
           <button class="primary" type="submit" id="save-search">Сохранить поиск</button>
         </form>
         <form id="saved-search-link-form" class="card saved-search-form">
-          <div class="search watch-input"><input name="sourceUrl" type="url" placeholder="Ссылка на поиск Авито" aria-label="Ссылка на поиск Авито" required maxlength="2048"></div>
+          <div class="search watch-input"><input name="sourceUrl" type="url" placeholder="Ссылка на поиск Авито" aria-label="Ссылка на поиск Авито" required maxlength="8192"></div>
           <button class="secondary" type="submit">Сохранить ссылку</button>
         </form>
         <p id="saved-search-message" class="watch-message" role="status" hidden></p>
@@ -114,7 +113,7 @@
         </div>
       </section>
     </main>
-    <nav id="nav" class="nav" aria-label="Разделы">
+    <nav id="nav" class="nav" aria-label="Разделы" hidden>
       <button type="button" data-page="watch-view" aria-current="page"><span aria-hidden="true">◉</span>Лотик</button>
       <button type="button" data-page="feed"><span aria-hidden="true">▤</span>Лента</button>
       <button type="button" data-page="saved"><span aria-hidden="true">♡</span>Избранное</button>

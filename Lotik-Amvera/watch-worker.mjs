@@ -63,7 +63,7 @@ export function createWatchWorker(db, lookup, telegram, now = secondsNow) {
     if (checking || !lookup) return;
     checking = true;
     try {
-      const due = db.prepare('SELECT * FROM watches WHERE due_at <= ? ORDER BY due_at, id LIMIT 40').all(now());
+      const due = db.prepare('SELECT * FROM watches WHERE user_id <> 0 AND due_at <= ? ORDER BY due_at, id LIMIT 40').all(now());
       const groups = new Map();
       const failures = [];
       for (const watch of due) {
@@ -145,8 +145,4 @@ export function startWatchWorker(db, lookup, telegram, checkSearches) {
   const poll = () => void tick().catch(() => console.error('Ошибка фонового отслеживания. Следующая попытка через секунду.'));
   poll();
   return setInterval(poll, 1000).unref();
-}
-
-export async function demoLookup(watch) {
-  return { status: 'active', title: 'Объявление № ' + watch.listing_id, price: watch.checked_at ? 62900 : 64900 };
 }

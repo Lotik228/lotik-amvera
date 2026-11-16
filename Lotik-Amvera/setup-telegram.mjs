@@ -2,7 +2,6 @@ import { readConfig } from './config.mjs';
 import { telegramClient } from './telegram.mjs';
 
 const config = readConfig();
-if (!config.production || !config.token) throw new Error('Set MODE=production and configure the Telegram bot');
 const call = telegramClient(config.token, config.telegramTest);
 const bot = await call('getMe');
 await call('setMyName', { name: 'Лотик' });

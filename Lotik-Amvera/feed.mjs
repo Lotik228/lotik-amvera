@@ -46,18 +46,3 @@ export async function refreshFeed(config, db) {
   const items = normalizeFeed(JSON.parse(Buffer.concat(chunks).toString('utf8')));
   saveFeed(db, items);
 }
-
-export function demoFeed() {
-  const samples = [
-    ['Apple iPhone 15 Pro, 256 ГБ', 'Москва', 'Электроника', 64900, 'telefony', 3],
-    ['MacBook Air M2, 13″, 16/256 ГБ', 'Санкт-Петербург', 'Электроника', 72900, 'noutbuki', 9],
-    ['Горный велосипед Trek Marlin 6', 'Москва', 'Спорт', 43500, 'velosipedy', 15],
-    ['Кофемашина De’Longhi Magnifica', 'Казань', 'Для дома', 28900, 'bytovaya_tehnika', 22],
-    ['Sony PlayStation 5 Slim, 1 ТБ', 'Москва', 'Электроника', 39900, 'igry_pristavki_i_programmy', 31],
-    ['Кресло IKEA MARKUS', 'Санкт-Петербург', 'Для дома', 12900, 'mebel_i_interer', 44],
-  ];
-  return samples.map(([title, city, category, price, path, minutes], index) => ({
-    id: String(index + 1), title, city, category, price, url: 'https://www.avito.ru/rossiya/' + path,
-    date: Date.now() - minutes * 60_000,
-  }));
-}

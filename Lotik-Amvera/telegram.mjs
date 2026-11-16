@@ -1,9 +1,10 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export function verifyInitData(raw, token, now = Math.floor(Date.now() / 1000)) {
-  if (typeof raw !== 'string' || raw.length > 8192) return null;
+  if (typeof raw !== 'string' || !raw || raw.length > 8192 || typeof token !== 'string' || !token) return null;
   const data = new URLSearchParams(raw);
   if (new Set(data.keys()).size !== data.size) return null;
+  if ([...data].some(([key, value]) => !/^[a-z][a-z0-9_]*$/.test(key) || /[\r\n]/.test(value))) return null;
   const hash = data.get('hash');
   if (!/^[a-f0-9]{64}$/i.test(hash ?? '')) return null;
   data.delete('hash');
@@ -13,11 +14,15 @@ export function verifyInitData(raw, token, now = Math.floor(Date.now() / 1000)) 
   const expected = createHmac('sha256', secret).update(check).digest();
   if (!timingSafeEqual(expected, Buffer.from(hash, 'hex'))) return null;
 
-  const authDate = Number(data.get('auth_date'));
-  if (!Number.isInteger(authDate) || authDate > now + 30 || now - authDate > 3600) return null;
+  const signedDate = data.get('auth_date');
+  if (!/^\d+$/.test(signedDate ?? '')) return null;
+  const authDate = Number(signedDate);
+  if (!Number.isSafeInteger(authDate) || authDate > now + 30 || now - authDate > 3600) return null;
   try {
     const user = JSON.parse(data.get('user'));
-    if (Number.isSafeInteger(user?.id) && user.id > 0 && typeof user.first_name === 'string') return user;
+    if (Number.isSafeInteger(user?.id) && user.id > 0 && typeof user.first_name === 'string'
+      && (user.last_name == null || typeof user.last_name === 'string')
+      && (user.username == null || typeof user.username === 'string')) return user;
   } catch {
     return null;
   }

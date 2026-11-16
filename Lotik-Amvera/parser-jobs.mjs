@@ -20,7 +20,7 @@ export function claimParserJob(db, now, gap) {
     const job = db.prepare(`
       SELECT s.id, s.source_url AS url, s.checked_at AS checkedAt
       FROM saved_searches s JOIN saved_search_users u ON u.search_id = s.id
-      WHERE s.source_url IS NOT NULL AND u.due_at <= ? AND (u.new_enabled OR u.drop_enabled)
+      WHERE s.source_url IS NOT NULL AND u.user_id <> 0 AND u.due_at <= ? AND (u.new_enabled OR u.drop_enabled)
       GROUP BY s.id ORDER BY MIN(u.due_at), s.id LIMIT 1
     `).get(now);
     if (!job) return null;

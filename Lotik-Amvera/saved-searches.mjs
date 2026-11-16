@@ -18,19 +18,30 @@ export function searchCriteria(input) {
 const isOn = row => Boolean(row?.new_enabled || row?.drop_enabled);
 const cursor = (db, id) => db.prepare('SELECT COALESCE(MAX(id), 0) AS value FROM saved_search_events WHERE search_id = ?').get(id).value;
 
+const nonCatalogPaths = new Set([
+  'account', 'api', 'auth', 'delivery', 'favorites', 'help', 'i', 'items', 'legal',
+  'login', 'messenger', 'out', 'payment', 'profile', 'redirect', 'registration',
+  'settings', 'share', 'support', 'users', 'web',
+]);
+
 export function parseSearchUrl(value) {
-  if (typeof value !== 'string' || value.length > 2048 || /\s/u.test(value.trim())) return null;
-  let url;
-  try { url = new URL(value.trim()); } catch { return null; }
-  if (url.protocol !== 'https:' || !['avito.ru', 'www.avito.ru', 'm.avito.ru'].includes(url.host)
-    || url.username || url.password || !/^\/[a-z0-9_-]+(?:\/[a-z0-9_-]+)*\/?$/i.test(url.pathname)
-    || parseListingLink(url.href)) return null;
-  url.hostname = 'www.avito.ru';
-  url.hash = '';
-  for (const key of [...url.searchParams.keys()]) {
-    if (/^utm_/i.test(key)) url.searchParams.delete(key);
+  if (typeof value !== 'string') return null;
+  const candidate = value.trim();
+  if (candidate.length > 8192 || /[\s\\\p{Cc}]|%(?![\da-f]{2})/iu.test(candidate)) return null;
+
+  const match = /^https:\/\/(?:www\.|m\.)?avito\.ru(\/[^?#]*)?(?=[?#]|$)/i.exec(candidate);
+  if (!match) return null;
+  let segments;
+  try {
+    segments = (match[1] ?? '').replace(/\/$/, '').split('/').slice(1).map(decodeURIComponent);
+  } catch {
+    return null;
   }
-  return url.href;
+  if (segments.some(segment => !/^[\p{L}\p{N}_-]+$/u.test(segment))
+    || nonCatalogPaths.has(segments[0]?.toLowerCase())
+    || parseListingLink('https://www.avito.ru/' + segments.join('/'))) return null;
+  if (!segments.length && !new URL(candidate).searchParams.get('q')?.trim()) return null;
+  return candidate;
 }
 
 export function listSavedSearches(db, userId) {
@@ -83,7 +94,7 @@ export function saveSearch(db, userId, input, now, { linkEnabled = false, textEn
       throw Object.assign(new Error('По тарифу доступно активных поисков: ' + searchLimit + '. Приостановите один из них.'), { status: 409 });
     }
     if (!existing && counts.total >= 30) throw Object.assign(new Error('Удалите один из сохранённых поисков.'), { status: 409 });
-    const active = db.prepare('SELECT 1 FROM saved_search_users WHERE search_id = ? AND (new_enabled OR drop_enabled) LIMIT 1');
+    const active = db.prepare('SELECT 1 FROM saved_search_users WHERE search_id = ? AND user_id <> 0 AND (new_enabled OR drop_enabled) LIMIT 1');
     if (!isOn(existing) && (input.newEnabled || input.dropEnabled) && !active.get(searchId)) {
       db.prepare('UPDATE saved_searches SET checked_at = NULL WHERE id = ?').run(searchId);
     }
@@ -131,12 +142,6 @@ export function createSearchLookup(key, fetchData = fetch) {
   };
 }
 
-export async function demoSearchLookup(search) {
-  const first = { id: '1234567890', title: search.query + ' · демо', url: 'https://www.avito.ru/moskva/telefony/primer_1234567890', price: search.checked_at ? 62900 : 64900 };
-  const next = { id: '1234567891', title: search.query + ' · новое в демо', url: 'https://www.avito.ru/moskva/telefony/primer_1234567891', price: 59900 };
-  return search.checked_at ? [first, next] : [first];
-}
-
 function recordResults(db, search, rows, now) {
   const seen = db.prepare('SELECT price FROM saved_search_seen WHERE search_id = ? AND listing_id = ?');
   const save = db.prepare(`
@@ -160,7 +165,7 @@ export function applySearchResults(db, searchId, rows, now) {
   const current = db.prepare('SELECT * FROM saved_searches WHERE id = ?').get(searchId);
   if (!current) return;
   const due = db.prepare(`
-    SELECT * FROM saved_search_users WHERE search_id = ? AND due_at <= ? AND (new_enabled OR drop_enabled)
+    SELECT * FROM saved_search_users WHERE search_id = ? AND user_id <> 0 AND due_at <= ? AND (new_enabled OR drop_enabled)
   `).all(searchId, now);
   if (!due.length) return;
   if (rows) recordResults(db, current, rows, now);
@@ -184,7 +189,7 @@ export function applySearchResults(db, searchId, rows, now) {
   db.prepare(`
     DELETE FROM saved_search_events WHERE search_id = ? AND id <= COALESCE((
       SELECT MIN(MIN(CASE WHEN new_enabled THEN new_cursor ELSE ? END, CASE WHEN drop_enabled THEN drop_cursor ELSE ? END))
-      FROM saved_search_users WHERE search_id = ? AND (new_enabled OR drop_enabled)
+      FROM saved_search_users WHERE search_id = ? AND user_id <> 0 AND (new_enabled OR drop_enabled)
     ), ?)
   `).run(searchId, last, last, searchId, last);
   db.prepare('DELETE FROM recent_alerts WHERE notified_at < ?').run(now - 86400);
@@ -198,7 +203,7 @@ export function createSearchWorker(db, lookup, now = () => Math.floor(Date.now()
     try {
       const searches = db.prepare(`
         SELECT s.* FROM saved_searches s JOIN saved_search_users sub ON sub.search_id = s.id
-        WHERE s.source_url IS NULL AND sub.due_at <= ? AND (sub.new_enabled OR sub.drop_enabled)
+        WHERE s.source_url IS NULL AND sub.user_id <> 0 AND sub.due_at <= ? AND (sub.new_enabled OR sub.drop_enabled)
         GROUP BY s.id ORDER BY MIN(sub.due_at), s.id LIMIT 24
       `).all(now());
       for (let i = 0; i < searches.length; i += 6) {
