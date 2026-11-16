@@ -3,7 +3,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import test from 'node:test';
 import { signIn } from './accounts.mjs';
 import { readConfig } from './config.mjs';
-import { ACCESS_SECONDS, checkout, handlePaymentWebhook } from './payments.mjs';
+import { ACCESS_SECONDS, checkout, handlePaymentWebhook, paymentState, reconcileLatestPayment } from './payments.mjs';
 import { normalizeFeed, saveFeed } from './feed.mjs';
 import { cardAccess, openStore } from './store.mjs';
 import { verifyInitData } from './telegram.mjs';
@@ -81,7 +81,7 @@ test('card checkout grants access only after a verified matching payment and clo
       assert.equal(payload.receipt.customer.email, account.email);
       assert.equal(key, payload.metadata.radar_order);
       payment = { id: 'payment-1', test: true, status: 'pending', paid: false, amount: payload.amount,
-        metadata: payload.metadata, payment_method: { type: 'bank_card' },
+        metadata: payload.metadata,
         confirmation: { confirmation_url: confirmationUrl } };
     }
     if (path === 'refunds/refund-1') {
@@ -96,6 +96,9 @@ test('card checkout grants access only after a verified matching payment and clo
   await handlePaymentWebhook(db, call, notification);
   assert.equal(cardAccess(db, account.id, now, true), undefined);
   payment = { ...payment, status: 'succeeded', paid: true, captured_at: new Date(now * 1000).toISOString() };
+  await handlePaymentWebhook(db, call, notification);
+  assert.equal(cardAccess(db, account.id, now, true), undefined);
+  payment.payment_method = { type: 'bank_card' };
   await handlePaymentWebhook(db, () => ({ ...payment, amount: { value: '1.00', currency: 'RUB' } }), notification);
   assert.equal(cardAccess(db, account.id, now, true), undefined);
   await handlePaymentWebhook(db, call, notification);
@@ -106,4 +109,89 @@ test('card checkout grants access only after a verified matching payment and clo
   await handlePaymentWebhook(db, call, { event: 'refund.succeeded', object: { id: 'refund-1' } });
   assert.equal(cardAccess(db, account.id, now, true), undefined);
   db.close();
+});
+
+test('status reconciliation checks only the current account and payment mode, including missed success and refunds', async t => {
+  const db = openStore(':memory:');
+  t.after(() => db.close());
+  const now = 1_700_000_000;
+  const accountId = 42;
+  db.prepare(`
+    INSERT INTO card_orders (id, account_id, payment_id, amount_minor, created_at, attempt_json, is_test)
+    VALUES ('test-order', ?, 'test-payment', 29900, ?, '{}', 1)
+  `).run(accountId, now);
+  const payment = {
+    id: 'test-payment', test: true, status: 'succeeded', paid: true, captured_at: new Date(now * 1000).toISOString(),
+    metadata: { radar_order: 'test-order' }, payment_method: { type: 'bank_card' }, amount: { value: '299.00', currency: 'RUB' },
+  };
+  const refund = (id, value) => ({
+    id, status: 'succeeded', payment_id: payment.id, amount: { value, currency: 'RUB' },
+  });
+  const partial = refund('refund-a', '100.10');
+  const remainder = refund('refund-b', '198.90');
+  let providerPayment = { ...payment, id: 'unexpected-payment' };
+  let refunds = [];
+  let nextPage = [];
+  let requests = 0;
+  const call = async (path, payload) => {
+    requests++;
+    assert.equal(payload, undefined);
+    if (path === 'payments/test-payment') return providerPayment;
+    const url = new URL(path, 'https://provider.example.test');
+    assert.equal(url.pathname, '/refunds');
+    assert.equal(url.searchParams.get('payment_id'), payment.id);
+    assert.equal(url.searchParams.get('status'), 'succeeded');
+    if (url.searchParams.has('cursor')) {
+      assert.equal(url.searchParams.get('cursor'), 'page+2');
+      return { items: nextPage };
+    }
+    return { items: refunds, next_cursor: nextPage.length ? 'page+2' : undefined };
+  };
+
+  assert.equal(paymentState(db, accountId, now, true), 'pending');
+  await reconcileLatestPayment(db, call, accountId + 1, true);
+  await reconcileLatestPayment(db, call, accountId, false);
+  assert.equal(requests, 0);
+  await assert.rejects(reconcileLatestPayment(db, call, accountId, true), /does not match/);
+  assert.equal(cardAccess(db, accountId, now, true), undefined);
+
+  providerPayment = payment;
+  await reconcileLatestPayment(db, call, accountId, true);
+  assert.equal(paymentState(db, accountId, now, true), 'succeeded');
+  assert.equal(cardAccess(db, accountId, now, true).expires_at, now + ACCESS_SECONDS);
+
+  refunds = [partial, { ...remainder, payment_id: 'other-payment' }, { ...remainder, status: 'pending' }];
+  await reconcileLatestPayment(db, call, accountId, true);
+  assert.equal(paymentState(db, accountId, now, true), 'partially_refunded');
+  assert.ok(cardAccess(db, accountId, now, true));
+  nextPage = [remainder];
+  await reconcileLatestPayment(db, call, accountId, true);
+  assert.equal(paymentState(db, accountId, now, true), 'refunded');
+  assert.equal(cardAccess(db, accountId, now, true), undefined);
+  assert.equal(db.prepare('SELECT SUM(amount_minor) AS total FROM card_refunds').get().total, 29900);
+});
+
+test('status reconciliation reports cancellations and leaves orders without a payment ID for safe retry', async t => {
+  const db = openStore(':memory:');
+  t.after(() => db.close());
+  const now = 1_700_000_000;
+  const accountId = 42;
+  db.prepare(`
+    INSERT INTO card_orders (id, account_id, amount_minor, created_at, attempt_json, is_test)
+    VALUES ('test-order', ?, 29900, ?, '{}', 1)
+  `).run(accountId, now);
+  assert.equal(paymentState(db, accountId, now, true), 'not_started');
+  assert.equal(paymentState(db, accountId, now + 23 * 3600, true), 'unconfirmed');
+  await reconcileLatestPayment(db, () => assert.fail('No provider payment ID'), accountId, true);
+
+  db.prepare("UPDATE card_orders SET payment_id = 'test-payment'").run();
+  await reconcileLatestPayment(db, async path => {
+    assert.equal(path, 'payments/test-payment');
+    return {
+      id: 'test-payment', test: true, status: 'canceled', metadata: { radar_order: 'test-order' },
+      amount: { value: '299.00', currency: 'RUB' },
+    };
+  }, accountId, true);
+  assert.equal(paymentState(db, accountId, now, true), 'canceled');
+  assert.equal(cardAccess(db, accountId, now, true), undefined);
 });

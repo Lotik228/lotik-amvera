@@ -12,7 +12,7 @@ import { apiBudgetStatus, budgetedFetch } from './api-budget.mjs';
 import { createSearchLookup, createSearchWorker, deleteSearch, linkSourceState, listSavedSearches, parseSearchUrl, saveSearch } from './saved-searches.mjs';
 import { addWatches, listWatches, parseListingLink, removeWatch, userPlan, watchStatus } from './watches.mjs';
 import { endSession, getAccount, signIn, startSession } from './accounts.mjs';
-import { checkout, confirmPending, createYooKassaClient, handlePaymentWebhook, pendingOrder } from './payments.mjs';
+import { checkout, createYooKassaClient, handlePaymentWebhook, paymentState, reconcileLatestPayment } from './payments.mjs';
 import { runParser } from './parser-loop.mjs';
 import { claimParserJob, finishParserJob, initializeParserStorage } from './parser-jobs.mjs';
 
@@ -113,7 +113,8 @@ function webProfile(account, now) {
   return {
     name: account?.email, signedIn: Boolean(account), price: config.price, support: config.support,
     expiresAt: access?.expires_at ?? null, canSubscribe: canCheckout() && Boolean(account),
-    testPayments, pendingPayment: Boolean(account && pendingOrder(db, account.id, testPayments)), ...searchProfile(),
+    testPayments, paymentState: account ? paymentState(db, account.id, now, testPayments) : null,
+    canCheckPayment: Boolean(account && cardApi), ...searchProfile(),
   };
 }
 
@@ -287,7 +288,7 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'GET' && route === '/api/me') {
       return json(res, 200, {
-        name, username, isOwner, support: config.support, ...searchProfile(),
+        name, username, isOwner, support: config.support, monitoringPlan: userPlan(db, user.id), ...searchProfile(),
       });
     }
     if (req.method === 'GET' && route === '/api/feed') {
@@ -320,7 +321,7 @@ const server = createServer(async (req, res) => {
       return json(res, 200, await checkout(db, config, cardApi, account, now));
     }
     if (req.method === 'POST' && web && route === '/api/payment-status') {
-      if (cardApi && !active) await confirmPending(db, cardApi, pendingOrder(db, account.id, testPayments));
+      if (cardApi) await reconcileLatestPayment(db, cardApi, account.id, testPayments);
       return json(res, 200, webProfile(account, now));
     }
     if (req.method === 'GET' && route === '/api/owner') {

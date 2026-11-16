@@ -79,7 +79,7 @@ select, .filter-row input { width: 100%; min-height: 42px; border: 1px solid var
 .card + .card { margin-top: 12px; }
 .card > :last-child, .empty { margin-bottom: 0; }
 .card ul { margin: 14px 0; padding-left: 20px; line-height: 1.6; }
-.plans-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.plans-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .plans-grid .card { margin: 0; }
 .pro { background: var(--forest); color: white; border-color: transparent; }
 .pro .eyebrow { color: var(--lime); }

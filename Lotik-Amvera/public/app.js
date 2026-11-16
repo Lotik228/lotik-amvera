@@ -409,9 +409,25 @@ async function loadAds(saved = false, append = false) {
   }
 }
 
+function paymentStatusText(profile) {
+  switch (profile.paymentState) {
+    case 'not_started': return 'Есть незавершённая попытка. Продолжите оплату на странице веб-доступа.';
+    case 'unconfirmed': return 'Статус предыдущей оплаты требует проверки. Свяжитесь с поддержкой.';
+    case 'pending': return 'Ожидаем подтверждение оплаты от ЮKassa.';
+    case 'canceled': return 'Платёж отменён. Оплату можно начать заново.';
+    case 'refunded': return 'Полный возврат подтверждён.';
+    case 'partially_refunded': return 'Частичный возврат подтверждён.';
+    case 'succeeded': return profile.expiresAt ? 'Оплата подтверждена.' : 'Оплата подтверждена. Срок веб-доступа истёк.';
+    default: return '';
+  }
+}
+
 async function refreshProfile() {
-  state.profile = await api('me');
-  const profile = state.profile;
+  renderProfile(await api('me'));
+}
+
+function renderProfile(profile) {
+  state.profile = profile;
   const signedOut = web && !profile.signedIn;
   $('nav').hidden = signedOut;
   $('avatar').hidden = signedOut;
@@ -423,15 +439,20 @@ async function refreshProfile() {
   if (web) $('price').textContent = money.format(profile.price);
   $('profile-name').textContent = profile.name;
   $('username').textContent = profile.username ? '@' + profile.username : '';
-  $('membership').textContent = profile.expiresAt
-    ? 'Лотик Pro до ' + dateFormat.format(profile.expiresAt * 1000)
-    : web ? 'Тариф «Лотик Standart»' : 'Бесплатная лента Telegram';
+  $('membership').textContent = web
+    ? (profile.expiresAt ? 'Лотик Pro на сайте до ' + dateFormat.format(profile.expiresAt * 1000) : 'Бесплатный веб-доступ')
+    : (profile.monitoringPlan ? 'Тариф мониторинга «' + profile.monitoringPlan.name + '»' : '');
   $('support').hidden = !profile.support;
   $('support').textContent = profile.support ? 'Поддержка по оплате: ' + profile.support : '';
   $('owner').hidden = !profile.isOwner;
-  $('check-payment').hidden = !profile.pendingPayment;
+  if (!web) return;
+  const orderStatus = paymentStatusText(profile);
+  $('order-status').textContent = orderStatus;
+  $('order-status').hidden = !orderStatus;
+  $('check-payment').hidden = !profile.canCheckPayment || !['pending', 'succeeded', 'partially_refunded'].includes(profile.paymentState);
   $('subscribe').disabled = Boolean(profile.expiresAt) || !profile.canSubscribe;
-  $('subscribe').textContent = profile.expiresAt ? 'Лотик Pro активен' : 'Оплатить картой';
+  $('subscribe').textContent = profile.expiresAt ? 'Лотик Pro активен'
+    : ['pending', 'not_started'].includes(profile.paymentState) ? 'Продолжить оплату' : 'Оплатить картой';
   $('payment-status').textContent = !profile.canSubscribe ? 'Оплата пока недоступна.'
     : profile.testPayments ? 'Тестовый магазин ЮKassa.' : 'Защищённая платёжная страница ЮKassa. Продление вручную.';
 }
@@ -568,7 +589,7 @@ $('subscribe').addEventListener('click', () => run(async () => {
   try {
     const result = await api('subscribe', 'POST');
     if (result.checkoutUrl) return window.location.assign(result.checkoutUrl);
-    if (result.paid) await refreshProfile();
+    if (result.paid || result.canceled) await refreshProfile();
     if (result.canceled) notice('Платёж отменён. Вы можете попробовать ещё раз.');
   } finally {
     $('subscribe').disabled = Boolean(state.profile.expiresAt) || !state.profile.canSubscribe;
@@ -586,10 +607,8 @@ async function checkPayment() {
   button.disabled = true;
   try {
     const status = await api('payment-status', 'POST');
-    await refreshProfile();
-    notice(status.expiresAt ? 'Оплата подтверждена. Лотик Pro активен.'
-      : status.pendingPayment ? 'Ожидаем подтверждение оплаты. Попробуйте обновить статус немного позже.'
-        : 'Активной оплаты нет. Начать оплату можно на странице подписки.');
+    renderProfile(status);
+    notice(paymentStatusText(status) || 'В этом аккаунте пока нет платежей.');
   } finally {
     button.disabled = false;
   }

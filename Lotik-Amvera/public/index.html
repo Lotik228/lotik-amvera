@@ -92,18 +92,18 @@
         <div id="saved-ads" class="list"></div><button type="button" class="secondary more" id="next-saved" hidden>Показать ещё</button>
       </section>
       <section id="plans" class="view panel-view web-only" hidden>
-        <h1>Тарифы</h1><p class="subtext">В Telegram тариф отслеживания назначает владелец бота. Подписка на сайте открывает полную выдачу поиска.</p>
+        <h1>Доступ к поиску на сайте</h1><p class="subtext">Тариф мониторинга в Telegram назначает владелец бота отдельно.</p>
         <div class="plans-grid">
-          <article class="card"><h2>Лотик Standart</h2><p class="helper">Бесплатно</p><ul><li>Проверка в Telegram каждые 3 минуты</li><li>До 3 результатов на запрос</li></ul></article>
-          <article class="card pro"><h2>Лотик Pro</h2><p><span id="price">299</span> ₽ <small>/ 30 дней на сайте</small></p><ul><li>Интервал в Telegram 1 минута</li><li>Все результаты поиска на сайте</li></ul><button type="button" id="subscribe" class="primary">Оплатить картой</button><p id="payment-status" class="helper"></p></article>
-          <article class="card"><h2>Лотик Premium</h2><p class="helper">Тариф для Telegram</p><ul><li>Проверка в Telegram каждые 30 секунд</li></ul><p class="helper">Доступ назначает владелец бота.</p></article>
+          <article class="card"><h2>Бесплатный веб-доступ</h2><ul><li>До 3 результатов на запрос</li></ul></article>
+          <article class="card pro"><h2>Лотик Pro на сайте</h2><p><span id="price">299</span> ₽ <small>/ 30 дней</small></p><ul><li>Все результаты поиска на сайте</li></ul><button type="button" id="subscribe" class="primary">Оплатить картой</button><p id="payment-status" class="helper"></p></article>
         </div>
       </section>
       <section id="account" class="view panel-view" hidden>
         <h1>Личный кабинет</h1>
         <div class="card">
           <h2 id="profile-name">Профиль</h2><p class="helper" id="username"></p>
-          <p id="membership"></p><button type="button" id="check-payment" class="secondary web-only" hidden>Проверить оплату</button> <button type="button" id="logout" class="secondary web-only">Выйти</button>
+          <p id="membership"></p><p id="order-status" class="helper web-only" hidden></p>
+          <button type="button" id="check-payment" class="secondary web-only" hidden>Проверить оплату</button> <button type="button" id="logout" class="secondary web-only">Выйти</button>
           <p id="support" class="helper" hidden></p>
         </div>
         <div class="card owner" id="owner" hidden>

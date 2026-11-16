@@ -28,10 +28,30 @@ export function pendingOrder(db, accountId, testMode) {
   `).get(accountId, Number(testMode));
 }
 
+function latestOrder(db, accountId, testMode) {
+  return db.prepare(`
+    SELECT id, payment_id, status, amount_minor, created_at,
+      COALESCE((SELECT SUM(amount_minor) FROM card_refunds WHERE order_id = card_orders.id), 0) AS refunded_minor
+    FROM card_orders WHERE account_id = ? AND is_test = ?
+    ORDER BY created_at DESC, rowid DESC LIMIT 1
+  `).get(accountId, Number(testMode));
+}
+
+export function paymentState(db, accountId, now, testMode) {
+  const order = latestOrder(db, accountId, testMode);
+  if (!order) return null;
+  if (order.status === 'pending' && !order.payment_id) {
+    return now - order.created_at >= RETRY_SECONDS ? 'unconfirmed' : 'not_started';
+  }
+  if (order.refunded_minor >= order.amount_minor) return 'refunded';
+  if (order.refunded_minor > 0) return 'partially_refunded';
+  return order.status;
+}
+
 function newOrder(db, config, account, now) {
   const id = randomUUID();
   const amount = { value: money(config.price * 100), currency: 'RUB' };
-  const description = 'Лотик Pro · доступ на 30 дней';
+  const description = 'Лотик Pro · веб-доступ на 30 дней';
   const payload = {
     amount, capture: true, description, payment_method_data: { type: 'bank_card' },
     confirmation: { type: 'redirect', return_url: config.webUrl + '/web/?payment=return' },
@@ -58,7 +78,8 @@ export function applyPayment(db, payment) {
     const order = db.prepare('SELECT * FROM card_orders WHERE id = ?').get(id);
     if (!order || (order.payment_id && order.payment_id !== payment.id)
       || payment.amount?.currency !== 'RUB' || payment.amount.value !== money(order.amount_minor)
-      || payment.test !== Boolean(order.is_test) || payment.payment_method?.type !== 'bank_card'
+      || payment.test !== Boolean(order.is_test)
+      || ((payment.status === 'succeeded' || payment.payment_method != null) && payment.payment_method?.type !== 'bank_card')
       || !['pending', 'succeeded', 'canceled'].includes(payment.status)) return null;
     if (order.status !== 'pending') return order;
 
@@ -73,11 +94,45 @@ export function applyPayment(db, payment) {
   });
 }
 
-export async function confirmPending(db, call, order) {
-  if (order?.payment_id) {
-    const payment = await call('payments/' + order.payment_id);
-    if (!applyPayment(db, payment)) throw new Error('YooKassa payment does not match the order');
+function recordRefund(db, order, refund) {
+  if (order?.status !== 'succeeded' || typeof refund?.id !== 'string' || !idPattern.test(refund.id)
+    || refund.payment_id !== order.payment_id || refund.status !== 'succeeded'
+    || refund.amount?.currency !== 'RUB' || !/^\d+\.\d{2}$/.test(refund.amount.value)) return;
+  const amount = Math.round(Number(refund.amount.value) * 100);
+  if (amount <= 0 || amount > order.amount_minor) return;
+  db.prepare(`
+    INSERT OR IGNORE INTO card_refunds (refund_id, order_id, amount_minor)
+    SELECT ?, ?, ?
+    WHERE ? + COALESCE((SELECT SUM(amount_minor) FROM card_refunds WHERE order_id = ?), 0) <= ?
+  `).run(refund.id, order.id, amount, amount, order.id, order.amount_minor);
+}
+
+export async function reconcileLatestPayment(db, call, accountId, testMode) {
+  const order = latestOrder(db, accountId, testMode);
+  if (!order?.payment_id || order.status === 'canceled' || order.refunded_minor >= order.amount_minor) return;
+  const payment = await call('payments/' + order.payment_id);
+  if (payment?.id !== order.payment_id || payment.metadata?.radar_order !== order.id) {
+    throw new Error('YooKassa payment does not match the order');
   }
+  const saved = applyPayment(db, payment);
+  if (!saved) throw new Error('YooKassa payment does not match the order');
+  if (saved.status !== 'succeeded' || payment.status !== 'succeeded') return;
+
+  const query = new URLSearchParams({ payment_id: order.payment_id, status: 'succeeded', limit: '100' });
+  const cursors = new Set();
+  do {
+    const page = await call('refunds?' + query);
+    if (!Array.isArray(page?.items)) throw new Error('YooKassa returned an invalid refund list');
+    transaction(db, () => {
+      for (const refund of page.items) recordRefund(db, saved, refund);
+    });
+    if (!page.next_cursor) return;
+    if (typeof page.next_cursor !== 'string' || cursors.has(page.next_cursor)) {
+      throw new Error('YooKassa returned an invalid refund cursor');
+    }
+    cursors.add(page.next_cursor);
+    query.set('cursor', page.next_cursor);
+  } while (true);
 }
 
 export async function checkout(db, config, call, account, now) {
@@ -104,18 +159,18 @@ export async function handlePaymentWebhook(db, call, event) {
   const id = event?.object?.id;
   if (typeof id !== 'string' || !idPattern.test(id)) return;
   if (['payment.succeeded', 'payment.canceled'].includes(event.event)) {
-    applyPayment(db, await call('payments/' + id));
+    const payment = await call('payments/' + id);
+    if (payment?.id === id) applyPayment(db, payment);
   }
   if (event.event === 'refund.succeeded') {
     const refund = await call('refunds/' + id);
-    const paymentId = refund.payment_id;
-    if (refund.id !== id || refund.status !== 'succeeded' || typeof paymentId !== 'string' || !idPattern.test(paymentId)
-      || refund.amount?.currency !== 'RUB' || !/^\d+\.\d{2}$/.test(refund.amount.value)) return;
-    const order = db.prepare('SELECT * FROM card_orders WHERE payment_id = ?').get(paymentId)
-      ?? applyPayment(db, await call('payments/' + paymentId));
-    const amount = Math.round(Number(refund.amount.value) * 100);
-    if (order?.status === 'succeeded' && amount > 0 && amount <= order.amount_minor) {
-      db.prepare('INSERT OR IGNORE INTO card_refunds VALUES (?, ?, ?)').run(id, order.id, amount);
+    const paymentId = refund?.payment_id;
+    if (refund?.id !== id || refund.status !== 'succeeded' || typeof paymentId !== 'string' || !idPattern.test(paymentId)) return;
+    let order = db.prepare('SELECT * FROM card_orders WHERE payment_id = ?').get(paymentId);
+    if (!order) {
+      const payment = await call('payments/' + paymentId);
+      if (payment?.id === paymentId) order = applyPayment(db, payment);
     }
+    recordRefund(db, order, refund);
   }
 }
