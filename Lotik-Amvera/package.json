@@ -1,0 +1,12 @@
+{
+  "name": "avito-radar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "setup:telegram": "node --env-file-if-exists=.env setup-telegram.mjs",
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f6f0">
+  <title>Лотик · Объявления Авито</title>
+  <link rel="icon" href="/lotik-logo.jpg" type="image/jpeg">
+  <link rel="stylesheet" href="/style.css">
+  <!-- telegram-sdk -->
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="top">
+      <div class="brand"><img src="/lotik-logo.jpg" width="1280" height="1280" alt="Лотик"></div>
+      <div class="top-right"><span class="mode" id="mode" hidden>Деморежим</span><button id="avatar" type="button" class="avatar" aria-label="Личный кабинет">●</button></div>
+    </header>
+    <main>
+      <p id="notice" class="notice" role="status" hidden></p>
+      <section id="watch-view" class="view">
+        <div class="hero">
+          <div class="hero-text"><h1>Отслеживание</h1><p>Вставьте ссылку на объявление Авито, чтобы следить за ценой и доступностью.</p></div>
+          <div class="radar" aria-hidden="true"><i></i><i></i><i></i><b></b><b></b><span></span></div>
+        </div>
+        <form id="watch-form" class="filters">
+          <label for="watch-url">Ссылка на объявление</label>
+          <div class="search watch-input">
+            <input id="watch-url" name="url" type="text" inputmode="url" placeholder="https://www.avito.ru/…" autocapitalize="off" spellcheck="false" required>
+            <button id="watch-submit" class="primary" type="submit">Отслеживать</button>
+          </div>
+        </form>
+        <div id="watch-plan" class="watch-plan">
+          <p id="watch-plan-label" class="helper"></p>
+          <div id="watch-plans" class="watch-plans" aria-label="Тариф для демо" role="group"></div>
+        </div>
+        <p id="watch-status" class="watch-message" role="status" hidden></p>
+        <div class="section-head watch-header"><div><h2>Отслеживаемые объявления</h2><p id="watch-summary"></p></div></div>
+        <div id="watch-list" class="list"></div>
+        <div class="watch-paging"><button id="watch-prev" class="secondary" type="button" hidden>Назад</button><button id="watch-next" class="secondary" type="button" hidden>Далее</button></div>
+        <div class="section-head watch-header"><div><h2>Отслеживание поиска</h2><p id="saved-search-summary"></p></div></div>
+        <form id="saved-search-form" class="card saved-search-form">
+          <div class="search watch-input"><input name="query" type="search" placeholder="Например, iPhone 15" aria-label="Запрос для отслеживания" required maxlength="100"></div>
+          <div class="saved-search-filters"><select name="city" id="saved-search-city" aria-label="Город поиска"></select>
+            <input name="maxPrice" type="number" min="0" max="10000000000" inputmode="numeric" placeholder="Цена до, ₽" aria-label="Максимальная цена отслеживания"></div>
+          <div class="watch-switches">
+            <label><input type="checkbox" role="switch" name="newEnabled" checked> Новые объявления</label>
+            <label><input type="checkbox" role="switch" name="dropEnabled"> Снижение цены</label>
+          </div>
+          <button class="primary" type="submit" id="save-search">Сохранить поиск</button>
+        </form>
+        <form id="saved-search-link-form" class="card saved-search-form">
+          <div class="search watch-input"><input name="sourceUrl" type="url" placeholder="Ссылка на поиск Авито" aria-label="Ссылка на поиск Авито" required maxlength="2048"></div>
+          <button class="secondary" type="submit">Сохранить ссылку</button>
+        </form>
+        <p id="saved-search-message" class="watch-message" role="status" hidden></p>
+        <div id="saved-search-list" class="list"></div>
+      </section>
+      <section id="login-view" class="view panel-view web-only" hidden>
+        <div class="hero">
+          <div class="hero-text"><h1>Личный кабинет</h1><p>Поиск объявлений, избранное и доступ к полной ленте.</p></div>
+          <div class="radar" aria-hidden="true"><i></i><i></i><i></i><b></b><b></b><span></span></div>
+        </div>
+        <form id="login-form" class="card auth-card">
+          <h2>Вход на сайт</h2>
+          <label>Электронная почта <input name="email" type="email" autocomplete="email" required maxlength="254"></label>
+          <label>Пароль <input name="password" type="password" autocomplete="current-password" required minlength="12" maxlength="128"></label>
+          <p class="helper">Для нового аккаунта используйте пароль от 12 символов.</p>
+          <div class="auth-actions"><button class="primary" type="submit" value="login">Войти</button><button class="secondary" type="submit" value="register">Создать аккаунт</button></div>
+        </form>
+      </section>
+      <section id="feed" class="view" hidden>
+        <div class="hero">
+          <div class="hero-text"><p class="eyebrow"><span class="live-dot"></span> Лента Авито</p><h1>Поиск на Авито</h1><p>Введите товар и выберите город.</p></div>
+          <div class="radar" aria-hidden="true"><i></i><i></i><i></i><b></b><b></b><span></span></div>
+        </div>
+        <form id="filters" class="filters">
+          <div class="search"><span aria-hidden="true">⌕</span><input id="query" name="q" type="search" placeholder="Например, iPhone" aria-label="Поиск по названию" maxlength="100"><button id="search-submit" class="primary" type="submit">Найти</button></div>
+          <div class="filter-row">
+            <select id="city" name="city" aria-label="Город"><option value="">Все города</option></select>
+            <select id="category" name="category" aria-label="Категория"><option value="">Все категории</option></select>
+            <input id="max" name="max" type="number" inputmode="numeric" min="0" placeholder="Цена до, ₽" aria-label="Максимальная цена в рублях">
+          </div>
+          <a id="search-on-avito" class="secondary" href="https://www.avito.ru/all" target="_blank" rel="noopener noreferrer">Открыть поиск на Авито ↗</a>
+        </form>
+        <div class="section-head"><div><h2 id="results-heading">Объявления</h2><p id="results" role="status"></p></div><select id="sort" aria-label="Сортировка"><option value="new">Сначала свежие</option><option value="price">Сначала дешевле</option></select></div>
+        <div id="ads" class="list"></div>
+        <div id="locked" class="upgrade web-only" hidden><div><h3>Больше объявлений с «Лотик Pro»</h3><p>Откройте полную ленту поиска.</p></div><button type="button" class="primary" data-page="plans">Посмотреть тариф</button></div>
+        <button type="button" class="secondary more" id="next-feed" hidden>Показать ещё</button>
+      </section>
+      <section id="saved" class="view panel-view" hidden>
+        <h1>Избранное</h1><p class="subtext">Объявления, которые вы сохранили.</p>
+        <div id="saved-ads" class="list"></div><button type="button" class="secondary more" id="next-saved" hidden>Показать ещё</button>
+      </section>
+      <section id="plans" class="view panel-view web-only" hidden>
+        <h1>Тарифы</h1><p class="subtext">В Telegram тариф отслеживания назначает владелец бота. Подписка на сайте открывает полную выдачу поиска.</p>
+        <div class="plans-grid">
+          <article class="card"><h2>Лотик Standart</h2><p class="helper">Бесплатно</p><ul><li>Проверка в Telegram каждые 3 минуты</li><li>До 3 результатов на запрос</li></ul></article>
+          <article class="card pro"><h2>Лотик Pro</h2><p><span id="price">299</span> ₽ <small>/ 30 дней на сайте</small></p><ul><li>Интервал в Telegram 1 минута</li><li>Все результаты поиска на сайте</li></ul><button type="button" id="subscribe" class="primary">Оплатить картой</button><p id="payment-status" class="helper"></p></article>
+          <article class="card"><h2>Лотик Premium</h2><p class="helper">Тариф для Telegram</p><ul><li>Проверка в Telegram каждые 30 секунд</li></ul><p class="helper">Доступ назначает владелец бота.</p></article>
+        </div>
+      </section>
+      <section id="account" class="view panel-view" hidden>
+        <h1>Личный кабинет</h1>
+        <div class="card">
+          <h2 id="profile-name">Профиль</h2><p class="helper" id="username"></p>
+          <p id="membership"></p><button type="button" id="check-payment" class="secondary web-only" hidden>Проверить оплату</button> <button type="button" id="logout" class="secondary web-only">Выйти</button>
+          <p id="support" class="helper" hidden></p>
+        </div>
+        <div class="card owner" id="owner" hidden>
+          <p class="eyebrow">Владелец бота</p><h2>Выручка</h2>
+          <dl><div><dt>Оплачено на сайте</dt><dd id="balance">—</dd></div><div><dt>Профили сайта</dt><dd id="accounts">—</dd></div><div><dt>Источник объявлений</dt><dd id="source">—</dd></div><div><dt>Кредиты API сегодня</dt><dd id="api-daily">—</dd></div><div><dt>Кредиты API за месяц</dt><dd id="api-monthly">—</dd></div></dl>
+          <p class="helper">Сумма за вычетом возвратов, до комиссии провайдера. Зачисления на ваш счёт отображаются в кабинете ЮKassa.</p>
+        </div>
+      </section>
+    </main>
+    <nav id="nav" class="nav" aria-label="Разделы">
+      <button type="button" data-page="watch-view" aria-current="page"><span aria-hidden="true">◉</span>Лотик</button>
+      <button type="button" data-page="feed"><span aria-hidden="true">▤</span>Лента</button>
+      <button type="button" data-page="saved"><span aria-hidden="true">♡</span>Избранное</button>
+      <button type="button" data-page="plans" class="web-only"><span aria-hidden="true">☆</span>Подписка</button>
+      <button type="button" data-page="account"><span aria-hidden="true">◎</span>Кабинет</button>
+    </nav>
+  </div>
+</body>
+</html>

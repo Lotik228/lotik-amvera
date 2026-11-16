@@ -1,0 +1,2 @@
+# No Python dependencies. Lotik runs on Node.js 24 with the built-in node:sqlite module.
+# See package.json and Dockerfile.amvera for runtime requirements.
