@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { apiBudgetStatus, budgetedFetch } from './api-budget.mjs';
-import { createSearchLookup, createSearchWorker, listSavedSearches, parseSearchUrl, saveSearch } from './saved-searches.mjs';
+import { handleBotUpdate } from './bot.mjs';
+import { createSearchLookup, createSearchWorker, linkSourceState, listSavedSearches, parseSearchUrl, saveSearch } from './saved-searches.mjs';
 import { openStore } from './store.mjs';
 import { createWatchWorker } from './watch-worker.mjs';
 import { addWatches, parseListingLink, setPlan } from './watches.mjs';
@@ -10,7 +11,7 @@ const url = id => 'https://www.avito.ru/moskva/telefony/phone_' + id;
 const ad = (id, price) => ({ id, price, url: url(id), title: 'Телефон ' + id });
 const search = { query: 'iPhone 15', city: 'moskva', maxPrice: 0 };
 
-test('saves an Avito search link once per user without scheduling a lookup', async () => {
+test('preserves notification settings for saved links with no source and does not run them through text lookup', async () => {
   const db = openStore(':memory:');
   const sourceUrl = 'https://www.avito.ru/moskva/telefony?q=iPhone%2015&localPriority=1&utm_source=test#results';
   const input = { sourceUrl, newEnabled: true, dropEnabled: true };
@@ -22,8 +23,8 @@ test('saves an Avito search link once per user without scheduling a lookup', asy
   assert.equal(listSavedSearches(db, 1).length, 1);
   assert.equal(listSavedSearches(db, 2).length, 0);
   assert.equal(row.source_url, sourceUrl);
-  assert.equal(row.new_enabled, 0);
-  assert.equal(row.drop_enabled, 0);
+  assert.equal(row.new_enabled, 1);
+  assert.equal(row.drop_enabled, 1);
   assert.equal(row.checked_at, null);
   await createSearchWorker(db, async () => assert.fail('Saved links must wait for a source'), () => 360)();
   assert.equal(listSavedSearches(db, 1)[0].checked_at, null);
@@ -43,9 +44,63 @@ test('accepts search links across categories and preserves the complete URL', ()
   ];
   for (const sourceUrl of links) {
     assert.equal(parseSearchUrl(' ' + sourceUrl + ' '), sourceUrl);
-    saveSearch(db, 1, { sourceUrl, newEnabled: true, dropEnabled: false }, 200);
+    saveSearch(db, 1, { sourceUrl, newEnabled: false, dropEnabled: false }, 200);
   }
   assert.deepEqual(listSavedSearches(db, 1).map(row => row.source_url), [...links].reverse());
+  db.close();
+});
+
+test('lets previously saved inactive links opt into notifications without a source, within the plan limit', () => {
+  const db = openStore(':memory:');
+  const sourceUrl = 'https://www.avito.ru/moskva/telefony?q=previous';
+  const input = { sourceUrl, newEnabled: false, dropEnabled: false };
+  saveSearch(db, 1, input, 200);
+  const id = listSavedSearches(db, 1)[0].id;
+  const changed = saveSearch(db, 1, { id, newEnabled: false, dropEnabled: true }, 201);
+  assert.equal(changed.notificationsEnabled, true);
+  assert.equal(linkSourceState(db, false), 'off');
+  assert.equal(listSavedSearches(db, 1)[0].drop_enabled, 1);
+  assert.throws(() => saveSearch(db, 2, { id, newEnabled: true, dropEnabled: false }, 201), { status: 404 });
+
+  const second = saveSearch(db, 1, { ...input, sourceUrl: sourceUrl + '&p=2', newEnabled: true }, 202, { allowSaveOnly: true });
+  assert.equal(second.notificationsEnabled, false);
+  assert.equal(second.limitReached, true);
+  const duplicate = saveSearch(db, 1, { ...input, newEnabled: true }, 202, { allowSaveOnly: true });
+  assert.equal(duplicate.alreadySaved, true);
+  assert.equal(listSavedSearches(db, 1).find(row => row.id === id).drop_enabled, 1);
+  db.close();
+});
+
+test('holds queued search alerts while the relevant source is off or paused', async () => {
+  const db = openStore(':memory:');
+  const sourceUrl = 'https://www.avito.ru/moskva/telefony?q=queue';
+  saveSearch(db, 1, { sourceUrl, newEnabled: true, dropEnabled: false }, 200);
+  const { id } = listSavedSearches(db, 1)[0];
+  db.prepare("INSERT INTO search_notifications (subscription_id, kind, user_id, text, retry_at) VALUES (?, 'new', 1, 'test', 201)").run(id);
+  const sent = [];
+  const telegram = async (_, message) => sent.push(message);
+  await createWatchWorker(db, null, telegram, () => 202, { linkSearches: false }).deliverQueued();
+  db.exec("UPDATE parser_state SET paused_reason = 'captcha' WHERE id = 1");
+  const active = createWatchWorker(db, null, telegram, () => 202);
+  await active.deliverQueued();
+  assert.equal(sent.length, 0);
+  assert.equal(linkSourceState(db, true), 'paused');
+  db.exec('UPDATE parser_state SET paused_reason = NULL WHERE id = 1');
+  await active.deliverQueued();
+  await active.deliverQueued();
+  assert.equal(sent.length, 1);
+  db.close();
+});
+
+test('the bot saves a search with the source off and explicitly says it will not run checks', async () => {
+  const db = openStore(':memory:');
+  const sent = [];
+  const sourceUrl = 'https://www.avito.ru/moskva/telefony?q=bot';
+  await handleBotUpdate(db, async (_, message) => sent.push(message), { parserMode: 'off' }, {
+    message: { chat: { id: 1, type: 'private' }, from: { id: 1 }, text: sourceUrl },
+  }, 201);
+  assert.match(sent[0].text, /Источник не подключён. Проверки не выполняются/);
+  assert.equal(listSavedSearches(db, 1)[0].source_url, sourceUrl);
   db.close();
 });
 

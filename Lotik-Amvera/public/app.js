@@ -119,7 +119,7 @@ async function loadWatches() {
   }
   state.watchSnapshot = snapshot;
   $('watch-plan-label').textContent = data.plan.name + ' · проверка через каждые ' + data.plan.label;
-  $('watch-summary').textContent = data.enabled ? '' : 'Ожидает подключения источника Авито.';
+  $('watch-summary').textContent = data.enabled ? '' : 'Проверка отдельных объявлений недоступна без источника.';
   const cards = data.rows.map(row => {
     const card = element('article', 'card watch-row');
     const info = element('div', '');
@@ -131,7 +131,7 @@ async function loadWatches() {
       event.preventDefault();
       tg.openLink(row.url);
     });
-    info.append(title, element('p', 'helper', row.status));
+    info.append(title, element('p', 'helper', data.enabled ? row.status : 'Автоматические проверки не выполняются.'));
     const timer = element('p', 'helper');
     if (data.enabled) {
       timer.dataset.watchDue = row.dueAt;
@@ -167,7 +167,7 @@ async function trackLink() {
     if (field.value.trim() === url) field.value = '';
     if (result.kind === 'search') {
       await loadSavedSearches();
-      watchMessage('Поиск сохранён. Он отображается в списке отслеживания поиска.');
+      watchMessage(searchSavedText(result));
       return;
     }
     state.watchPage = 1;
@@ -195,6 +195,20 @@ function savedSearchSettings(container) {
   };
 }
 
+function sourceNotice(sourceState) {
+  if (sourceState === 'off') return 'Источник не подключён. Проверки и уведомления не работают.';
+  if (sourceState === 'paused') return 'Источник приостановлен. Проверки и уведомления временно недоступны.';
+  return '';
+}
+
+function searchSavedText(result) {
+  const parts = [result.alreadySaved ? 'Поиск уже сохранён.' : 'Поиск сохранён.'];
+  if (result.limitReached) parts.push('Лимит тарифа достигнут. Для этого поиска уведомления выключены.');
+  else if (!result.notificationsEnabled) parts.push('Уведомления выключены.');
+  parts.push(sourceNotice(result.sourceState));
+  return parts.filter(Boolean).join(' ');
+}
+
 async function loadSavedSearches() {
   const request = Symbol();
   state.requests.savedSearches = request;
@@ -207,10 +221,11 @@ async function loadSavedSearches() {
   const current = city.value;
   city.replaceChildren(...Object.entries(data.cities).map(([key, label]) => new Option(label, key)));
   if (Object.hasOwn(data.cities, current)) city.value = current;
-  $('save-search').disabled = !data.enabled;
-  $('saved-search-summary').textContent = data.enabled || data.linkEnabled
-    ? 'Активных поисков ' + data.rows.filter(row => row.new_enabled || row.drop_enabled).length + ' из ' + data.plan.searchLimit
-    : 'Для запуска проверок подключите источник Авито.';
+  const configuredCount = data.rows.filter(row => row.new_enabled || row.drop_enabled).length;
+  const limit = 'Поисков с включёнными уведомлениями: ' + configuredCount + ' из ' + data.plan.searchLimit + '.';
+  $('saved-search-summary').textContent = !data.enabled && !data.linkEnabled
+    ? 'Можно сохранять поиски и выбирать уведомления. Без источника проверки не выполняются. ' + limit
+    : limit;
   const list = $('saved-search-list');
   const open = new Set([...list.querySelectorAll('details[open]')].map(node => node.dataset.activity));
   list.replaceChildren(...data.rows.map(row => {
@@ -240,16 +255,15 @@ async function loadSavedSearches() {
     const location = row.source_url ? '' : data.cities[row.city];
     const sourceEnabled = row.source_url ? data.linkEnabled : data.enabled;
     const price = row.max_price ? ' · до ' + money.format(row.max_price) + ' ₽' : '';
-    const status = !sourceEnabled ? 'ждёт подключения источника'
-      : !row.new_enabled && !row.drop_enabled ? 'на паузе'
-        : row.source_url && data.parserPaused ? 'проверки остановлены источником'
-          : row.checked_at ? 'проверено ' + shortTime.format(row.checked_at * 1000)
-            : 'ждёт первой проверки';
+    const sourceState = !sourceEnabled ? 'off' : row.source_url && data.parserPaused ? 'paused' : 'ready';
+    const configured = Boolean(row.new_enabled || row.drop_enabled);
+    const status = [
+      sourceState === 'off' ? 'Сохранён. Источник не подключён, проверки не выполняются.' : sourceNotice(sourceState),
+      !configured ? 'Уведомления выключены.' : sourceState !== 'ready' ? 'Настройки уведомлений сохранены.' : '',
+      row.checked_at ? 'Последняя успешная проверка: ' + shortTime.format(row.checked_at * 1000)
+        : configured && sourceState === 'ready' ? 'Ожидает первой проверки.' : '',
+    ].filter(Boolean).join(' ');
     card.append(element('p', 'helper', [location + price, status].filter(Boolean).join(' · ')));
-    if (row.source_url && !sourceEnabled && !row.latest_new && !row.latest_drop) {
-      card.append(remove);
-      return card;
-    }
     const switches = element('div', 'watch-switches');
     const inputs = [['newEnabled', 'Новые объявления', row.new_enabled], ['dropEnabled', 'Снижение цены', row.drop_enabled]]
       .map(([name, label, value]) => {
@@ -258,7 +272,6 @@ async function loadSavedSearches() {
         checkbox.type = 'checkbox';
         checkbox.name = name;
         checkbox.checked = Boolean(value);
-        checkbox.disabled = !sourceEnabled;
         checkbox.setAttribute('role', 'switch');
         wrap.append(checkbox, label);
         switches.append(wrap);
@@ -267,9 +280,10 @@ async function loadSavedSearches() {
     for (const checkbox of inputs) checkbox.addEventListener('change', () => run(async () => {
       for (const control of inputs) control.disabled = true;
       try {
-        await api('search-watches', 'PUT', { id: row.id, ...savedSearchSettings(switches) });
+        const result = await api('search-watches', 'PUT', { id: row.id, ...savedSearchSettings(switches) });
         await loadSavedSearches();
-        savedSearchMessage('Настройки уведомлений сохранены.');
+        savedSearchMessage([result.notificationsEnabled ? 'Настройки уведомлений сохранены.' : 'Уведомления выключены.',
+          sourceNotice(result.sourceState)].filter(Boolean).join(' '));
       } catch (error) {
         checkbox.checked = !checkbox.checked;
         savedSearchMessage(error.message, true);
@@ -471,12 +485,12 @@ $('saved-search-form').addEventListener('submit', event => {
     const button = $('save-search');
     button.disabled = true;
     try {
-      await api('search-watches', 'POST', {
+      const result = await api('search-watches', 'POST', {
         query: fields.get('query'), city: fields.get('city'), maxPrice: Number(fields.get('maxPrice')), ...savedSearchSettings(form),
       });
       form.elements.query.value = '';
       await loadSavedSearches();
-      savedSearchMessage('Поиск сохранён.');
+      savedSearchMessage(searchSavedText(result));
     } catch (error) {
       savedSearchMessage(error.message, true);
     } finally {
@@ -492,10 +506,10 @@ $('saved-search-link-form').addEventListener('submit', event => {
   run(async () => {
     button.disabled = true;
     try {
-      await api('search-watches', 'POST', { sourceUrl: input.value.trim(), newEnabled: true, dropEnabled: false });
+      const result = await api('search-watches', 'POST', { sourceUrl: input.value.trim(), newEnabled: true, dropEnabled: false });
       input.value = '';
       await loadSavedSearches();
-      savedSearchMessage('Ссылка сохранена.');
+      savedSearchMessage(searchSavedText(result));
     } catch (error) {
       savedSearchMessage(error.message, true);
     } finally {

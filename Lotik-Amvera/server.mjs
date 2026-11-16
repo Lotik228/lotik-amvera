@@ -9,7 +9,7 @@ import { handleBotUpdate } from './bot.mjs';
 import { createLookup, hasLookup, startWatchWorker } from './watch-worker.mjs';
 import { createMarketSearch, marketCities } from './market-search.mjs';
 import { apiBudgetStatus, budgetedFetch } from './api-budget.mjs';
-import { createSearchLookup, createSearchWorker, deleteSearch, listSavedSearches, parseSearchUrl, saveSearch } from './saved-searches.mjs';
+import { createSearchLookup, createSearchWorker, deleteSearch, linkSourceState, listSavedSearches, parseSearchUrl, saveSearch } from './saved-searches.mjs';
 import { addWatches, listWatches, parseListingLink, removeWatch, userPlan, watchStatus } from './watches.mjs';
 import { endSession, getAccount, signIn, startSession } from './accounts.mjs';
 import { checkout, confirmPending, createYooKassaClient, handlePaymentWebhook, pendingOrder } from './payments.mjs';
@@ -36,7 +36,8 @@ const marketSearch = config.searchKey ? createMarketSearch(config.searchKey, api
 const searchLookup = config.searchKey ? createSearchLookup(config.searchKey, apiFetch) : null;
 const watchLookup = hasLookup(config) ? createLookup(config, apiFetch) : null;
 if (watchLookup || searchLookup || config.parserMode === 'live') {
-  startWatchWorker(db, watchLookup, telegram, searchLookup ? createSearchWorker(db, searchLookup) : null);
+  startWatchWorker(db, watchLookup, telegram, searchLookup ? createSearchWorker(db, searchLookup) : null,
+    { textSearches: Boolean(searchLookup), linkSearches: config.parserMode === 'live' });
 }
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -133,15 +134,14 @@ async function watchRoute(req, res, url, id, now) {
     const input = await body(req);
     const sourceUrl = parseSearchUrl(input?.url);
     if (sourceUrl) {
-      saveSearch(db, id, { sourceUrl, newEnabled: true, dropEnabled: false }, now,
-        { linkEnabled: config.parserMode !== 'off' });
-      return json(res, 200, { kind: 'search' });
+      const search = saveSearch(db, id, { sourceUrl, newEnabled: true, dropEnabled: false }, now, { allowSaveOnly: true });
+      return json(res, 200, { kind: 'search', ...search, sourceState: linkSourceState(db, config.parserMode === 'live') });
     }
     const value = typeof input?.url === 'string' ? input.url.trim() : '';
     const listing = /^(?:https:\/\/)?(?:www\.|m\.)?avito\.ru\//i.test(value) && !/[\s\\\p{Cc}]/u.test(value)
       ? parseListingLink(value) : null;
     if (!listing) return json(res, 400, { error: 'Вставьте HTTPS-ссылку на поиск или объявление Авито.' });
-    if (!enabled) return json(res, 409, { error: 'Источник Авито ещё не подключён.' });
+    if (!enabled) return json(res, 409, { error: 'Объявление не добавлено. Проверка отдельных объявлений недоступна без источника.' });
     const added = addWatches(db, id, [listing], now) === 1;
     return json(res, 200, { added });
   }
@@ -155,17 +155,18 @@ async function watchRoute(req, res, url, id, now) {
 
 async function searchWatchRoute(req, res, id, now) {
   const enabled = Boolean(searchLookup);
-  const linkEnabled = config.parserMode !== 'off';
+  const linkEnabled = config.parserMode === 'live';
   if (req.method === 'GET') return json(res, 200, {
     enabled, linkEnabled,
-    parserPaused: linkEnabled && Boolean(db.prepare('SELECT paused_reason FROM parser_state WHERE id = 1').get().paused_reason),
+    parserPaused: linkSourceState(db, linkEnabled) === 'paused',
     plan: userPlan(db, id), cities: marketCities, rows: listSavedSearches(db, id),
   });
   const input = await body(req);
   if (req.method === 'POST' || req.method === 'PUT') {
     if (req.method === 'PUT' && !Number.isSafeInteger(input?.id)) return json(res, 400, { error: 'Укажите сохранённый поиск.' });
-    saveSearch(db, id, input, now, { textEnabled: enabled, linkEnabled });
-    return json(res, 200, { ok: true });
+    const search = saveSearch(db, id, input, now, { allowSaveOnly: req.method === 'POST' && input?.sourceUrl != null });
+    const sourceState = search.sourceUrl ? linkSourceState(db, linkEnabled) : enabled ? 'ready' : 'off';
+    return json(res, 200, { ok: true, ...search, sourceState });
   }
   if (req.method === 'DELETE') {
     if (!Number.isSafeInteger(input?.id)) return json(res, 400, { error: 'Укажите сохранённый поиск.' });

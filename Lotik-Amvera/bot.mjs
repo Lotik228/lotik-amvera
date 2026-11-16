@@ -1,6 +1,6 @@
 import { addWatches, extractLinks, extractMessageLinks, listWatches, plans, removeWatch, setPlan, userPlan, watchStatus } from './watches.mjs';
 import { hasLookup, linkOptions } from './watch-worker.mjs';
-import { parseSearchUrl, saveSearch } from './saved-searches.mjs';
+import { linkSourceState, parseSearchUrl, saveSearch } from './saved-searches.mjs';
 
 function tariffLine(db, userId) {
   const plan = userPlan(db, userId);
@@ -19,7 +19,7 @@ export async function handleBotUpdate(db, telegram, config, update, now) {
   });
 
   if (command === '/start') {
-    return send('Пришлите ссылку на объявление Авито. Я сообщу, если изменятся цена или доступность.\n\n' + tariffLine(db, userId), {
+    return send('Пришлите ссылку на поиск или объявление Авито. Автоматические проверки работают при подключённом источнике данных.\n\n' + tariffLine(db, userId), {
       reply_markup: { inline_keyboard: [[{ text: 'Открыть Лотик', web_app: { url: config.publicUrl } }]] },
     });
   }
@@ -58,19 +58,24 @@ export async function handleBotUpdate(db, telegram, config, update, now) {
   }
 
   const listings = extractLinks(message);
-  if (!listings.length && config.parserMode === 'live') {
+  if (!listings.length) {
     const search = extractMessageLinks(message).find(value => parseSearchUrl(value));
     if (search) {
       try {
-        saveSearch(db, userId, { sourceUrl: search, newEnabled: true, dropEnabled: false }, now, { linkEnabled: true });
+        const saved = saveSearch(db, userId, { sourceUrl: search, newEnabled: true, dropEnabled: false }, now, { allowSaveOnly: true });
+        const source = linkSourceState(db, config.parserMode === 'live');
+        const status = source === 'off' ? 'Источник не подключён. Проверки не выполняются.'
+          : source === 'paused' ? 'Источник приостановлен. Проверки не выполняются.' : '';
+        const settings = saved.notificationsEnabled ? 'Настройки уведомлений доступны в Лотике.'
+          : 'Уведомления для этого поиска выключены. Включить их можно в Лотике в пределах тарифа.';
+        return send([saved.alreadySaved ? 'Поиск уже сохранён.' : 'Поиск сохранён.', status, settings].filter(Boolean).join('\n'));
       } catch (error) {
         if ([400, 409].includes(error.status)) return send(error.message);
         throw error;
       }
-      return send('Поиск сохранён. Статус и уведомления можно настроить в Лотике.');
     }
   }
-  if (!listings.length) return send('Пришлите прямую ссылку на объявление Авито. Ваш список — /watches.');
+  if (!listings.length) return send('Пришлите ссылку на поиск или прямую ссылку на объявление Авито.');
   if (!hasLookup(config)) return send('Источник данных для отслеживания пока не подключён. Попробуйте позже.');
   const added = addWatches(db, userId, listings, now);
   const plan = userPlan(db, userId);

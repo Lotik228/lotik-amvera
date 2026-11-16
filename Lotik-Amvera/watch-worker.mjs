@@ -54,7 +54,7 @@ export function validateSnapshot(input, id) {
   };
 }
 
-export function createWatchWorker(db, lookup, telegram, now = secondsNow) {
+export function createWatchWorker(db, lookup, telegram, now = secondsNow, { textSearches = true, linkSearches = true } = {}) {
   let checking = false;
   let delivering = false;
   const cache = new Map();
@@ -102,14 +102,21 @@ export function createWatchWorker(db, lookup, telegram, now = secondsNow) {
         WITH queued AS (
           SELECT id, user_id, text, retry_at, attempts, 0 AS source FROM watch_notifications
           UNION ALL
-          SELECT id, user_id, text, retry_at, attempts, 1 AS source FROM search_notifications
+          SELECT n.id, n.user_id, n.text, n.retry_at, n.attempts, 1 AS source
+          FROM search_notifications AS n
+          JOIN saved_search_users AS sub ON sub.id = n.subscription_id
+          JOIN saved_searches AS s ON s.id = sub.search_id
+          WHERE (s.source_url IS NULL AND ?) OR (
+            s.source_url IS NOT NULL AND ?
+            AND NOT EXISTS (SELECT 1 FROM parser_state WHERE id = 1 AND paused_reason IS NOT NULL)
+          )
         ), per_chat AS (
           SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY retry_at, source, id) AS slot
           FROM queued WHERE retry_at <= ?
         )
         SELECT * FROM per_chat WHERE slot = 1
         ORDER BY retry_at, id LIMIT 20
-      `).all(now());
+      `).all(Number(textSearches), Number(linkSearches), now());
       const queues = ['watch_notifications', 'search_notifications'].map(table => ({
         remove: db.prepare('DELETE FROM ' + table + ' WHERE id = ?'),
         exists: db.prepare('SELECT 1 FROM ' + table + ' WHERE id = ?'),
@@ -137,8 +144,8 @@ export function createWatchWorker(db, lookup, telegram, now = secondsNow) {
   return { checkDue, deliverQueued };
 }
 
-export function startWatchWorker(db, lookup, telegram, checkSearches) {
-  const { checkDue, deliverQueued } = createWatchWorker(db, lookup, telegram);
+export function startWatchWorker(db, lookup, telegram, checkSearches, searchSources) {
+  const { checkDue, deliverQueued } = createWatchWorker(db, lookup, telegram, secondsNow, searchSources);
   async function tick() {
     await Promise.all([checkDue(), telegram && deliverQueued(), checkSearches?.()]);
   }

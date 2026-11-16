@@ -54,64 +54,75 @@ export function listSavedSearches(db, userId) {
   `).all(userId);
 }
 
-export function saveSearch(db, userId, input, now, { linkEnabled = false, textEnabled = true } = {}) {
+export function linkSourceState(db, enabled) {
+  if (!enabled) return 'off';
+  return db.prepare('SELECT paused_reason FROM parser_state WHERE id = 1').get().paused_reason ? 'paused' : 'ready';
+}
+
+export function saveSearch(db, userId, input, now, { allowSaveOnly = false } = {}) {
   if (typeof input?.newEnabled !== 'boolean' || typeof input?.dropEnabled !== 'boolean') {
     throw Object.assign(new Error('Укажите настройки уведомлений.'), { status: 400 });
   }
   return transaction(db, () => {
     let existing;
     let searchId;
+    let sourceUrl = null;
     if (input.id != null) {
       if (!Number.isSafeInteger(input.id) || input.id < 1) throw Object.assign(new Error('Некорректный поиск.'), { status: 400 });
       existing = db.prepare('SELECT * FROM saved_search_users WHERE id = ? AND user_id = ?').get(input.id, userId);
       if (!existing) throw Object.assign(new Error('Поиск не найден.'), { status: 404 });
       searchId = existing.search_id;
+      sourceUrl = db.prepare('SELECT source_url FROM saved_searches WHERE id = ?').get(searchId).source_url;
     } else if (input.sourceUrl != null) {
       const url = parseSearchUrl(input.sourceUrl);
       if (!url) throw Object.assign(new Error('Вставьте HTTPS-ссылку на поиск или категорию Авито.'), { status: 400 });
+      sourceUrl = url;
       // The capitalized prefix cannot collide with normalized, lowercase text searches.
       const key = 'Avito URL ' + url;
       db.prepare("INSERT OR IGNORE INTO saved_searches(query, city, max_price, source_url) VALUES (?, 'all', 0, ?)").run(key, url);
       searchId = db.prepare("SELECT id FROM saved_searches WHERE query = ? AND city = 'all' AND max_price = 0").get(key).id;
       existing = db.prepare('SELECT * FROM saved_search_users WHERE search_id = ? AND user_id = ?').get(searchId, userId);
-      if (existing) return;
-      if (!linkEnabled) input = { ...input, newEnabled: false, dropEnabled: false };
+      if (existing) return { sourceUrl, notificationsEnabled: isOn(existing), alreadySaved: true };
     } else {
       const { query, city, max } = searchCriteria(input);
       db.prepare('INSERT OR IGNORE INTO saved_searches(query, city, max_price) VALUES (?, ?, ?)').run(query, city, max);
       searchId = db.prepare('SELECT id FROM saved_searches WHERE query = ? AND city = ? AND max_price = ?').get(query, city, max).id;
       existing = db.prepare('SELECT * FROM saved_search_users WHERE search_id = ? AND user_id = ?').get(searchId, userId);
     }
-    const source = db.prepare('SELECT source_url FROM saved_searches WHERE id = ?').get(searchId);
-    if ((input.newEnabled || input.dropEnabled) && !(source.source_url ? linkEnabled : textEnabled)) {
-      throw Object.assign(new Error('Источник для этого поиска ещё не подключён.'), { status: 409 });
-    }
+    let { newEnabled, dropEnabled } = input;
     const { seconds, searchLimit } = userPlan(db, userId);
     const counts = db.prepare(`
       SELECT COUNT(*) AS total, SUM(new_enabled OR drop_enabled) AS active FROM saved_search_users WHERE user_id = ?
     `).get(userId);
-    if (!isOn(existing) && (input.newEnabled || input.dropEnabled) && counts.active >= searchLimit) {
-      throw Object.assign(new Error('По тарифу доступно активных поисков: ' + searchLimit + '. Приостановите один из них.'), { status: 409 });
+    const limitReached = !isOn(existing) && (newEnabled || dropEnabled) && counts.active >= searchLimit;
+    if (limitReached) {
+      if (!allowSaveOnly || existing) {
+        throw Object.assign(new Error('По тарифу доступно поисков с уведомлениями: ' + searchLimit
+          + '. Выключите уведомления у другого поиска.'), { status: 409 });
+      }
+      newEnabled = false;
+      dropEnabled = false;
     }
     if (!existing && counts.total >= 30) throw Object.assign(new Error('Удалите один из сохранённых поисков.'), { status: 409 });
     const active = db.prepare('SELECT 1 FROM saved_search_users WHERE search_id = ? AND user_id <> 0 AND (new_enabled OR drop_enabled) LIMIT 1');
-    if (!isOn(existing) && (input.newEnabled || input.dropEnabled) && !active.get(searchId)) {
+    if (!isOn(existing) && (newEnabled || dropEnabled) && !active.get(searchId)) {
       db.prepare('UPDATE saved_searches SET checked_at = NULL WHERE id = ?').run(searchId);
     }
     const last = cursor(db, searchId);
-    const newCursor = existing?.new_enabled && input.newEnabled ? existing.new_cursor : last;
-    const dropCursor = existing?.drop_enabled && input.dropEnabled ? existing.drop_cursor : last;
+    const newCursor = existing?.new_enabled && newEnabled ? existing.new_cursor : last;
+    const dropCursor = existing?.drop_enabled && dropEnabled ? existing.drop_cursor : last;
     db.prepare(`
       INSERT INTO saved_search_users (search_id, user_id, new_enabled, drop_enabled, new_cursor, drop_cursor, due_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(search_id, user_id) DO UPDATE SET
         new_enabled = excluded.new_enabled, drop_enabled = excluded.drop_enabled, new_cursor = excluded.new_cursor,
         drop_cursor = excluded.drop_cursor, due_at = excluded.due_at
-    `).run(searchId, userId, Number(input.newEnabled), Number(input.dropEnabled), newCursor, dropCursor,
+    `).run(searchId, userId, Number(newEnabled), Number(dropEnabled), newCursor, dropCursor,
       isOn(existing) ? existing.due_at : nextSlot(now, seconds));
     const cancel = db.prepare('DELETE FROM search_notifications WHERE subscription_id = ? AND kind = ?');
-    if (existing && !input.newEnabled) cancel.run(existing.id, 'new');
-    if (existing && !input.dropEnabled) cancel.run(existing.id, 'drop');
+    if (existing && !newEnabled) cancel.run(existing.id, 'new');
+    if (existing && !dropEnabled) cancel.run(existing.id, 'drop');
+    return { sourceUrl, notificationsEnabled: newEnabled || dropEnabled, limitReached };
   });
 }
 
