@@ -85,6 +85,21 @@ function element(tag, className, text) {
   return node;
 }
 
+function setActionBusy(button, busy) {
+  button.disabled = busy;
+  if (busy) button.setAttribute('aria-busy', 'true');
+  else button.removeAttribute('aria-busy');
+}
+
+async function loadList(path, target, key, request) {
+  target.setAttribute('aria-busy', 'true');
+  try {
+    return await api(path);
+  } finally {
+    if (state.requests[key] === request) target.removeAttribute('aria-busy');
+  }
+}
+
 function watchMessage(text, error = false) {
   const message = $('watch-status');
   message.textContent = text || '';
@@ -110,7 +125,8 @@ async function loadWatches() {
   const request = Symbol();
   const page = state.watchPage;
   state.requests.watches = request;
-  const { now, ...data } = await api('watches?page=' + page);
+  const path = 'watches?page=' + page;
+  const { now, ...data } = await (state.watchSnapshot ? api(path) : loadList(path, $('watch-list'), 'watches', request));
   if (state.requests.watches !== request) return;
   state.watchClockOffset = now - Math.floor(Date.now() / 1000);
   const snapshot = JSON.stringify([page, data]);
@@ -141,10 +157,15 @@ async function loadWatches() {
     const remove = element('button', 'secondary', 'Остановить');
     remove.type = 'button';
     remove.addEventListener('click', () => run(async () => {
-      await api('watches', 'DELETE', { id: row.id });
-      if (data.rows.length === 1 && state.watchPage > 1) state.watchPage--;
-      await loadWatches();
-      watchMessage('Отслеживание остановлено.');
+      setActionBusy(remove, true);
+      try {
+        await api('watches', 'DELETE', { id: row.id });
+        if (data.rows.length === 1 && state.watchPage > 1) state.watchPage--;
+        await loadWatches();
+        watchMessage('Отслеживание остановлено.');
+      } finally {
+        setActionBusy(remove, false);
+      }
     }));
     card.append(info, timer, remove);
     return card;
@@ -161,7 +182,7 @@ async function trackLink() {
   const url = field.value.trim();
   if (!url) return;
   state.addingWatch = true;
-  $('watch-submit').disabled = true;
+  setActionBusy($('watch-submit'), true);
   watchMessage('Добавляем ссылку…');
   try {
     const result = await api('watches', 'POST', { url });
@@ -178,7 +199,7 @@ async function trackLink() {
     watchMessage(error.message, true);
   } finally {
     state.addingWatch = false;
-    $('watch-submit').disabled = false;
+    setActionBusy($('watch-submit'), false);
   }
 }
 
@@ -213,7 +234,9 @@ function searchSavedText(result) {
 async function loadSavedSearches() {
   const request = Symbol();
   state.requests.savedSearches = request;
-  const data = await api('search-watches');
+  const list = $('saved-search-list');
+  const data = await (state.savedSearchSnapshot
+    ? api('search-watches') : loadList('search-watches', list, 'savedSearches', request));
   if (state.requests.savedSearches !== request) return;
   const snapshot = JSON.stringify(data);
   if (snapshot === state.savedSearchSnapshot) return;
@@ -227,16 +250,20 @@ async function loadSavedSearches() {
   $('saved-search-summary').textContent = !data.enabled && !data.linkEnabled
     ? 'Можно сохранять поиски и выбирать уведомления. Без источника проверки не выполняются. ' + limit
     : limit;
-  const list = $('saved-search-list');
   const open = new Set([...list.querySelectorAll('details[open]')].map(node => node.dataset.activity));
   list.replaceChildren(...data.rows.map(row => {
     const card = element('article', 'card saved-search-card');
     const remove = element('button', 'secondary', 'Удалить поиск');
     remove.type = 'button';
     remove.addEventListener('click', () => run(async () => {
-      await api('search-watches', 'DELETE', { id: row.id });
-      await loadSavedSearches();
-      savedSearchMessage('Поиск удалён.');
+      setActionBusy(remove, true);
+      try {
+        await api('search-watches', 'DELETE', { id: row.id });
+        await loadSavedSearches();
+        savedSearchMessage('Поиск удалён.');
+      } finally {
+        setActionBusy(remove, false);
+      }
     }));
     if (row.source_url) {
       const url = new URL(row.source_url);
@@ -335,7 +362,7 @@ function adCard(ad) {
   save.setAttribute('aria-label', 'Избранное: ' + ad.title);
   save.setAttribute('aria-pressed', Boolean(ad.saved));
   save.addEventListener('click', async () => {
-    save.disabled = true;
+    setActionBusy(save, true);
     try {
       const result = await api('favorite', 'PUT', { id: ad.id, saved: !ad.saved });
       ad.saved = result.saved;
@@ -343,7 +370,7 @@ function adCard(ad) {
       save.setAttribute('aria-pressed', ad.saved);
       if (state.page === 'saved') await loadAds(true);
     } catch (error) { notice(error.message); }
-    finally { save.disabled = false; }
+    finally { setActionBusy(save, false); }
   });
   row.append(icon, info, price, save);
   return row;
@@ -363,6 +390,7 @@ async function loadAds(saved = false, append = false) {
     avitoSearchLink();
     if (mode === 'external' || (market && !query.get('q')?.trim())) {
       state.requests[key] = Symbol();
+      target.removeAttribute('aria-busy');
       $('results').textContent = mode === 'external' ? 'Актуальные результаты откроются на Авито.'
         : 'Введите товар, чтобы загрузить выдачу Авито.';
       $('locked').hidden = true;
@@ -382,9 +410,9 @@ async function loadAds(saved = false, append = false) {
   if (market && !append) state.marketQuery = query.toString();
   const request = Symbol();
   state.requests[key] = request;
-  next.disabled = true;
+  setActionBusy(next, true);
   try {
-    const data = await api('feed?' + query);
+    const data = await loadList('feed?' + query, target, key, request);
     if (state.requests[key] !== request) return;
     state[key] = page;
     if (!saved) {
@@ -406,7 +434,7 @@ async function loadAds(saved = false, append = false) {
     if (!saved && state.requests[key] === request) $('results').textContent = error.message;
     else if (saved) throw error;
   } finally {
-    if (state.requests[key] === request) next.disabled = false;
+    if (state.requests[key] === request) setActionBusy(next, false);
   }
 }
 
@@ -526,19 +554,21 @@ function renderOwnerCustomer(result) {
   updateOwnerPlanWarning();
 }
 
-async function submitOwnerForm(action) {
+async function submitOwnerForm(button, action) {
   const searchButton = $('owner-user-search').querySelector('button');
   const select = $('owner-plan-select');
   if (searchButton.disabled) return;
   searchButton.disabled = true;
   select.disabled = true;
   $('owner-plan-save').disabled = true;
+  button?.setAttribute('aria-busy', 'true');
   ownerUserMessage('');
   try {
     await action();
   } catch (error) {
     ownerUserMessage(error.message);
   } finally {
+    button?.removeAttribute('aria-busy');
     searchButton.disabled = false;
     select.disabled = false;
     if (ownerCustomer) updateOwnerPlanWarning();
@@ -547,7 +577,7 @@ async function submitOwnerForm(action) {
 
 $('owner-user-search').addEventListener('submit', event => {
   event.preventDefault();
-  void submitOwnerForm(async () => {
+  void submitOwnerForm(event.submitter, async () => {
     ownerCustomer = undefined;
     $('owner-user-plan').hidden = true;
     const query = $('owner-user-query').value.trim();
@@ -559,7 +589,7 @@ $('owner-plan-select').addEventListener('change', updateOwnerPlanWarning);
 $('owner-user-plan').addEventListener('submit', event => {
   event.preventDefault();
   if (!ownerCustomer || $('owner-plan-save').disabled) return;
-  void submitOwnerForm(async () => {
+  void submitOwnerForm(event.submitter, async () => {
     const { user } = ownerCustomer;
     const plan = $('owner-plan-select').value;
     renderOwnerCustomer(await api('owner/user', 'POST', { userId: user.id, plan, expectedPlan: user.plan }));
@@ -608,7 +638,7 @@ $('saved-search-form').addEventListener('submit', event => {
   const fields = new FormData(form);
   run(async () => {
     const button = $('save-search');
-    button.disabled = true;
+    setActionBusy(button, true);
     try {
       const result = await api('search-watches', 'POST', {
         query: fields.get('query'), city: fields.get('city'), maxPrice: Number(fields.get('maxPrice')), ...savedSearchSettings(form),
@@ -619,7 +649,7 @@ $('saved-search-form').addEventListener('submit', event => {
     } catch (error) {
       savedSearchMessage(error.message, true);
     } finally {
-      button.disabled = false;
+      setActionBusy(button, false);
     }
   });
 });
@@ -629,7 +659,7 @@ $('saved-search-link-form').addEventListener('submit', event => {
   const input = form.elements.sourceUrl;
   const button = form.querySelector('button');
   run(async () => {
-    button.disabled = true;
+    setActionBusy(button, true);
     try {
       const result = await api('search-watches', 'POST', { sourceUrl: input.value.trim(), newEnabled: true, dropEnabled: false });
       input.value = '';
@@ -638,7 +668,7 @@ $('saved-search-link-form').addEventListener('submit', event => {
     } catch (error) {
       savedSearchMessage(error.message, true);
     } finally {
-      button.disabled = false;
+      setActionBusy(button, false);
     }
   });
 });
@@ -727,12 +757,14 @@ $('login-form').addEventListener('submit', event => {
     const fields = Object.fromEntries(new FormData(form));
     const buttons = [...form.querySelectorAll('button')];
     for (const button of buttons) button.disabled = true;
+    submit?.setAttribute('aria-busy', 'true');
     try {
       await api(kind, 'POST', fields);
       form.reset();
       await refreshProfile();
       await openPage('watch-view');
     } finally {
+      submit?.removeAttribute('aria-busy');
       for (const button of buttons) button.disabled = false;
     }
   });

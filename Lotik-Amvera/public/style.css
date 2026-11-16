@@ -138,6 +138,85 @@ dd { margin: 0; font-weight: 800; text-align: right; }
 .nav button { display: grid; gap: 3px; place-items: center; border: 0; min-height: 52px; padding: 4px 0; border-radius: 12px; background: transparent; color: var(--muted); font-size: .72rem; font-weight: 800; }
 .nav button span { font-size: 1.18rem; line-height: 1; }
 .nav button[aria-current] { background: #e9f2e1; color: var(--forest); }
+
+button[aria-busy=true] { position: relative; color: transparent; }
+button[aria-busy=true]::after {
+  content: "…";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--forest);
+  font-size: 1.15rem;
+  pointer-events: none;
+}
+.list[aria-busy=true]:empty::before {
+  content: "";
+  min-height: 74px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background:
+    linear-gradient(#e4ebdf 0 0) 16px 20px / min(44%, 220px) 9px no-repeat,
+    linear-gradient(#edf1ea 0 0) 16px 39px / min(65%, 320px) 8px no-repeat,
+    var(--paper);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .view:not([hidden]) { animation: enter-view 220ms cubic-bezier(.2, .75, .25, 1); }
+  .ad, .notice:not([hidden]), .watch-message:not([hidden]), #owner-user-plan:not([hidden]) {
+    animation: enter-view 160ms ease-out;
+  }
+  .primary, .secondary, .avatar, .heart, .nav button {
+    transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease,
+      transform 150ms ease, opacity 120ms ease;
+  }
+  .watch-message { transition: background-color 150ms ease, color 150ms ease; }
+  :is(.primary, .secondary, .heart)[aria-busy=true] {
+    transition-property: background-color, border-color, transform, opacity;
+  }
+  :is(button, a):is(.primary, .secondary, .avatar, .heart, .nav button):active:not(:disabled) {
+    transform: scale(.97);
+  }
+  button[aria-busy=true]::after {
+    content: "";
+    inset: 50% auto auto 50%;
+    width: 15px;
+    height: 15px;
+    margin: -7.5px 0 0 -7.5px;
+    border: 2px solid #a8bb9e;
+    border-top-color: var(--forest);
+    border-radius: 50%;
+    animation: spin 760ms linear infinite;
+  }
+  .list[aria-busy=true]:empty::before { animation: loading-pulse 1250ms ease-in-out infinite alternate; }
+
+  @supports (interpolate-size: allow-keywords) and selector(details::details-content) {
+    .saved-search-card details { interpolate-size: allow-keywords; }
+    .saved-search-card details::details-content {
+      block-size: 0;
+      opacity: 0;
+      overflow: clip;
+      transition: block-size 190ms ease, opacity 150ms ease, content-visibility 190ms allow-discrete;
+    }
+    .saved-search-card details[open]::details-content { block-size: auto; opacity: 1; }
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .secondary:hover:not(:disabled), .avatar:hover:not(:disabled), .heart:hover:not(:disabled),
+  .nav button:hover:not([aria-current]) { background-color: #e6efdf; }
+  @media (prefers-reduced-motion: no-preference) {
+    :is(.primary, .secondary, .avatar, .heart):hover:not(:active, :disabled) { transform: translateY(-1px); }
+  }
+}
+
+@keyframes enter-view {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes spin { to { transform: rotate(1turn); } }
+@keyframes loading-pulse { from { opacity: .58; } to { opacity: 1; } }
+
 @media (max-width: 550px) {
   .shell { padding: 12px 13px calc(90px + env(safe-area-inset-bottom)); }
   .top { margin-bottom: 12px; }
