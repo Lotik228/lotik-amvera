@@ -28,7 +28,8 @@ export function readConfig(env = process.env) {
     searchKey: env.AVITO_SEARCH_API_KEY?.trim(),
     apiDailyCredits: Number(env.AVITO_API_DAILY_CREDITS ?? 500),
     apiMonthlyCredits: Number(env.AVITO_API_MONTHLY_CREDITS ?? 10000),
-    cardCheckoutEnabled: env.ENABLE_CARD_CHECKOUT === '1',
+    cardCheckoutEnabled: env.ENABLE_CARD_CHECKOUT === '1' && env.YOOKASSA_TEST === '1'
+      && env.AMVERA !== '1' && env.LOTIK_CONTAINER !== '1',
   };
   if (env.AMVERA === '1') {
     const mountedPath = posix.resolve('/', config.dataDir);

@@ -26,7 +26,9 @@
 | `PARSER_MODE` | `off` при первом запуске. После согласования доступа к Авито используйте `live` и `AVITO_ACCESS_APPROVED=1` |
 | `ENABLE_CARD_CHECKOUT` | `0` |
 
-Оставьте поля API.SH и ЮKassa пустыми. Перезапустите приложение, чтобы применить переменные. Когда `/health` отвечает по HTTPS, зарегистрируйте webhook и кнопку Mini App командой `npm run setup:telegram` на компьютере с Node.js 24. Скрипт берёт те же значения из локального `.env`; файл с секретами не загружайте в Amvera. [Переменные и секреты Amvera](https://docs.amvera.ru/applications/configuration/variables.html).
+Оставьте поля API.SH и ЮKassa пустыми при первичной настройке. Оформление новых платежей отключено в релизном контейнере до проверки с тестовым магазином ЮKassa. При обновлении сохраняйте исходный режим `YOOKASSA_TEST` и путь к SQLite, чтобы приложение продолжало читать заказы и доступы из соответствующего режима.
+
+Когда `/health` отвечает по HTTPS, при первичной настройке зарегистрируйте webhook и кнопку Mini App командой `npm run setup:telegram` на компьютере с Node.js 24. Скрипт берёт те же значения из локального `.env`; файл с секретами не загружайте в Amvera. [Переменные и секреты Amvera](https://docs.amvera.ru/applications/configuration/variables.html).
 
 ## База данных
 

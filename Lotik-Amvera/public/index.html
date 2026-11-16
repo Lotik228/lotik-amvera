@@ -107,9 +107,38 @@
           <p id="support" class="helper" hidden></p>
         </div>
         <div class="card owner" id="owner" hidden>
-          <p class="eyebrow">Владелец бота</p><h2>Выручка</h2>
-          <dl><div><dt>Оплачено на сайте</dt><dd id="balance">—</dd></div><div><dt>Профили сайта</dt><dd id="accounts">—</dd></div><div><dt>Источник объявлений</dt><dd id="source">—</dd></div><div><dt>Кредиты API сегодня</dt><dd id="api-daily">—</dd></div><div><dt>Кредиты API за месяц</dt><dd id="api-monthly">—</dd></div></dl>
-          <p class="helper">Сумма за вычетом возвратов, до комиссии провайдера. Зачисления на ваш счёт отображаются в кабинете ЮKassa.</p>
+          <h2>Панель владельца</h2>
+          <div id="owner-overview" hidden>
+            <h3>Веб-подписки</h3>
+            <dl><div><dt>Выручка на сайте</dt><dd id="balance">—</dd></div><div><dt>Профили сайта</dt><dd id="accounts">—</dd></div><div><dt>Действующие платные доступы</dt><dd id="active-web-accounts">—</dd></div></dl>
+            <p class="helper">Выручка за вычетом возвратов, до комиссии ЮKassa.</p>
+            <h3>Последние заказы</h3>
+            <ul class="list" id="owner-orders"></ul><p class="helper" id="owner-orders-empty" hidden>Заказов пока нет.</p>
+            <h3>Тарифы пользователей Mini App</h3>
+            <dl id="owner-plans"></dl>
+            <h3>Управление тарифом Telegram</h3>
+            <form class="saved-search-form" id="owner-user-search">
+              <label for="owner-user-query">Telegram ID или @username</label>
+              <div class="watch-input">
+                <input id="owner-user-query" type="text" maxlength="33" autocomplete="off" autocapitalize="off" required>
+                <button type="submit" class="secondary">Найти</button>
+              </div>
+            </form>
+            <form class="saved-search-form" id="owner-user-plan" hidden>
+              <strong id="owner-user-name"></strong>
+              <p class="helper" id="owner-user-searches"></p>
+              <label for="owner-plan-select">Тариф мониторинга</label>
+              <select id="owner-plan-select"></select>
+              <p class="helper" id="owner-plan-warning" hidden></p>
+              <button type="submit" class="primary" id="owner-plan-save" disabled>Сохранить тариф</button>
+            </form>
+            <p class="helper" id="owner-user-message" role="status" hidden></p>
+            <h3>Последние изменения из панели</h3>
+            <ul class="list owner-history" id="owner-plan-history"></ul>
+            <p class="helper" id="owner-history-empty" hidden>Изменений пока нет.</p>
+            <h3>Источники данных</h3>
+            <dl><div><dt>Лента объявлений</dt><dd id="source">—</dd></div><div><dt>Кредиты API сегодня</dt><dd id="api-daily">—</dd></div><div><dt>Кредиты API за месяц</dt><dd id="api-monthly">—</dd></div></dl>
+          </div>
         </div>
       </section>
     </main>

@@ -89,6 +89,10 @@ select, .filter-row input { width: 100%; min-height: 42px; border: 1px solid var
 dl { display: grid; gap: 8px; }
 dl div { display: flex; justify-content: space-between; gap: 8px; }
 dd { margin: 0; font-weight: 800; text-align: right; }
+#owner-orders, .owner-history { padding: 0; list-style: none; }
+#owner-orders li, .owner-history li { display: grid; gap: 3px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+#owner-user-plan { margin-top: 14px; }
+#owner-user-plan .helper { margin: 0; }
 .notice { padding: 12px; background: #fff3cf; border-radius: 12px; }
 .watch-input input { flex-basis: 120px; overflow: hidden; }
 #watch-form label { font-size: .85rem; font-weight: 800; }

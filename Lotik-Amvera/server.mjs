@@ -13,6 +13,7 @@ import { createSearchLookup, createSearchWorker, deleteSearch, linkSourceState, 
 import { addWatches, listWatches, parseListingLink, removeWatch, userPlan, watchStatus } from './watches.mjs';
 import { endSession, getAccount, signIn, startSession } from './accounts.mjs';
 import { checkout, createYooKassaClient, handlePaymentWebhook, paymentState, reconcileLatestPayment } from './payments.mjs';
+import { changeOwnerPlan, ownerOverview, ownerUser } from './owner.mjs';
 import { runParser } from './parser-loop.mjs';
 import { claimParserJob, finishParserJob, initializeParserStorage } from './parser-jobs.mjs';
 
@@ -288,7 +289,8 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'GET' && route === '/api/me') {
       return json(res, 200, {
-        name, username, isOwner, support: config.support, monitoringPlan: userPlan(db, user.id), ...searchProfile(),
+        name, username, telegramId: user.id, isOwner, support: config.support,
+        monitoringPlan: userPlan(db, user.id), ...searchProfile(),
       });
     }
     if (req.method === 'GET' && route === '/api/feed') {
@@ -326,16 +328,16 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'GET' && route === '/api/owner') {
       if (!isOwner) return json(res, 403, { error: 'Доступ только владельцу.' });
-      const netMinor = db.prepare(`
-        SELECT COALESCE(SUM(amount_minor - COALESCE(
-          (SELECT SUM(amount_minor) FROM card_refunds WHERE order_id = card_orders.id), 0)), 0) AS total
-        FROM card_orders WHERE status = 'succeeded' AND is_test = 0
-      `).get().total;
       return json(res, 200, {
-        netRub: netMinor / 100, accounts: db.prepare('SELECT COUNT(*) AS count FROM web_accounts').get().count,
+        ...ownerOverview(db, now),
         liveFeed: Boolean(config.feedUrl), lastSync: feedState(),
         budget: apiBudgetStatus(db, config),
       });
+    }
+    if (route === '/api/owner/user') {
+      if (!isOwner) return json(res, 403, { error: 'Доступ только владельцу.' });
+      if (req.method === 'GET') return json(res, 200, ownerUser(db, url.searchParams.get('q')));
+      if (req.method === 'POST') return json(res, 200, changeOwnerPlan(db, user.id, await body(req), now));
     }
     return json(res, 404, { error: 'Страница не найдена.' });
   } catch (error) {

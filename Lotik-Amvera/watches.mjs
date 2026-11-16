@@ -35,14 +35,22 @@ export function extractLinks(message) {
   return [...new Map(listings.map(item => [item.id, item])).values()];
 }
 
-export function userPlan(db, userId) {
-  return plans[db.prepare('SELECT plan FROM watch_plans WHERE user_id = ?').get(userId)?.plan ?? 'basic'];
+function userPlanKey(db, userId) {
+  return db.prepare('SELECT plan FROM watch_plans WHERE user_id = ?').get(userId)?.plan ?? 'basic';
 }
 
-export function setPlan(db, userId, key, now) {
+export function userPlan(db, userId) {
+  return plans[userPlanKey(db, userId)];
+}
+
+export function setPlan(db, userId, key, now, { actorId, expectedPlan } = {}) {
   if (typeof key !== 'string' || !Object.hasOwn(plans, key)) return false;
   return transaction(db, () => {
-    if (userPlan(db, userId) === plans[key]) return true;
+    const previousPlan = userPlanKey(db, userId);
+    if (previousPlan === key) return true;
+    if (expectedPlan != null && previousPlan !== expectedPlan) {
+      throw Object.assign(new Error('Тариф уже изменился. Найдите пользователя заново.'), { status: 409 });
+    }
     db.prepare(`
       INSERT INTO watch_plans VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET plan = excluded.plan
     `).run(userId, key);
@@ -58,6 +66,12 @@ export function setPlan(db, userId, key, now) {
     `).all(userId, plans[key].searchLimit);
     const cancel = db.prepare('DELETE FROM search_notifications WHERE subscription_id = ?');
     for (const sub of paused) cancel.run(sub.id);
+    if (actorId != null) {
+      db.prepare(`
+        INSERT INTO owner_plan_changes (actor_id, user_id, previous_plan, new_plan, changed_at, paused_searches)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(actorId, userId, previousPlan, key, now, paused.length);
+    }
     return true;
   });
 }

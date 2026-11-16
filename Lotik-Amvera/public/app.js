@@ -6,6 +6,7 @@ tg?.expand();
 
 const $ = id => document.getElementById(id);
 const state = { profile: null, page: null, feedPage: 0, savedPage: 0, watchPage: 1, requests: {} };
+let ownerCustomer;
 const money = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 const dateFormat = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium' });
 const shortTime = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
@@ -457,6 +458,117 @@ function renderProfile(profile) {
     : profile.testPayments ? 'Тестовый магазин ЮKassa.' : 'Защищённая платёжная страница ЮKassa. Продление вручную.';
 }
 
+async function loadOwnerOverview() {
+  const owner = await api('owner');
+  const rubles = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' });
+  $('balance').textContent = rubles.format(owner.netRub);
+  $('accounts').textContent = money.format(owner.accounts);
+  $('active-web-accounts').textContent = money.format(owner.activeWebAccounts);
+  $('api-daily').textContent = money.format(owner.budget.today) + ' / ' + money.format(owner.budget.daily);
+  $('api-monthly').textContent = money.format(owner.budget.month) + ' / ' + money.format(owner.budget.monthly);
+  $('source').textContent = owner.liveFeed && owner.lastSync ? shortTime.format(owner.lastSync)
+    : owner.liveFeed ? 'Ожидает загрузки' : 'Не подключена';
+  $('owner-plans').replaceChildren(...owner.telegramPlans.map(({ name, total }) => {
+    const row = element('div');
+    row.append(element('dt', '', name), element('dd', '', money.format(total)));
+    return row;
+  }));
+  const statuses = { pending: 'Ожидает оплаты', canceled: 'Отменён', succeeded: 'Оплачен' };
+  $('owner-orders-empty').hidden = owner.orders.length > 0;
+  $('owner-orders').replaceChildren(...owner.orders.map(order => {
+    const row = element('li');
+    const amount = rubles.format(order.amountMinor / 100);
+    const status = order.refundedMinor >= order.amountMinor ? 'Полный возврат'
+      : order.refundedMinor > 0 ? 'Частичный возврат ' + rubles.format(order.refundedMinor / 100)
+        : statuses[order.status] ?? 'Статус неизвестен';
+    row.append(
+      element('strong', '', amount + ' · ' + status + (order.isTest ? ' · Тестовый' : '')),
+      element('span', 'helper', 'Веб-профиль №' + order.accountId + ' · ' + shortTime.format(order.createdAt * 1000)),
+    );
+    return row;
+  }));
+  $('owner-history-empty').hidden = owner.planChanges.length > 0;
+  $('owner-plan-history').replaceChildren(...owner.planChanges.map(change => {
+    const row = element('li');
+    const paused = change.pausedSearches ? ' · уведомления приостановлены у ' + change.pausedSearches + ' поисков' : '';
+    row.append(
+      element('strong', '', change.previousPlan + ' → ' + change.newPlan),
+      element('span', 'helper', 'ID ' + change.userId + ' · ' + shortTime.format(change.changedAt * 1000) + paused),
+    );
+    return row;
+  }));
+  $('owner-overview').hidden = false;
+}
+
+function ownerUserMessage(message) {
+  $('owner-user-message').textContent = message;
+  $('owner-user-message').hidden = !message;
+}
+
+function updateOwnerPlanWarning() {
+  const { user, plans } = ownerCustomer;
+  const selected = plans.find(plan => plan.key === $('owner-plan-select').value);
+  const paused = Math.max(0, user.enabledSearches - selected.searchLimit);
+  $('owner-plan-save').disabled = selected.key === user.plan;
+  $('owner-plan-warning').hidden = !paused || selected.key === user.plan;
+  $('owner-plan-warning').textContent = 'Уведомления выключатся у ' + paused + ' поисков. Ссылки сохранятся.';
+}
+
+function renderOwnerCustomer(result) {
+  ownerCustomer = result;
+  const { user, plans } = result;
+  $('owner-user-name').textContent = [user.name, user.username && '@' + user.username, 'ID ' + user.id].filter(Boolean).join(' · ');
+  $('owner-user-searches').textContent = 'Поисков сохранено ' + user.savedSearches + ', с уведомлениями '
+    + user.enabledSearches + '. Отдельных объявлений ' + user.savedListings + '.';
+  $('owner-plan-select').replaceChildren(...plans.map(plan => new Option(plan.name, plan.key)));
+  $('owner-plan-select').value = user.plan;
+  $('owner-user-plan').hidden = false;
+  updateOwnerPlanWarning();
+}
+
+async function submitOwnerForm(action) {
+  const searchButton = $('owner-user-search').querySelector('button');
+  const select = $('owner-plan-select');
+  if (searchButton.disabled) return;
+  searchButton.disabled = true;
+  select.disabled = true;
+  $('owner-plan-save').disabled = true;
+  ownerUserMessage('');
+  try {
+    await action();
+  } catch (error) {
+    ownerUserMessage(error.message);
+  } finally {
+    searchButton.disabled = false;
+    select.disabled = false;
+    if (ownerCustomer) updateOwnerPlanWarning();
+  }
+}
+
+$('owner-user-search').addEventListener('submit', event => {
+  event.preventDefault();
+  void submitOwnerForm(async () => {
+    ownerCustomer = undefined;
+    $('owner-user-plan').hidden = true;
+    const query = $('owner-user-query').value.trim();
+    renderOwnerCustomer(await api('owner/user?' + new URLSearchParams({ q: query })));
+  });
+});
+
+$('owner-plan-select').addEventListener('change', updateOwnerPlanWarning);
+$('owner-user-plan').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!ownerCustomer || $('owner-plan-save').disabled) return;
+  void submitOwnerForm(async () => {
+    const { user } = ownerCustomer;
+    const plan = $('owner-plan-select').value;
+    renderOwnerCustomer(await api('owner/user', 'POST', { userId: user.id, plan, expectedPlan: user.plan }));
+    ownerUserMessage('Тариф сохранён.');
+    if (user.id === state.profile?.telegramId) await refreshProfile().catch(error => notice(error.message));
+    await loadOwnerOverview().catch(error => notice(error.message));
+  });
+});
+
 async function openPage(page) {
   if (!state.profile || page === 'account' || page === 'plans') await refreshProfile();
   if (web && !state.profile.signedIn) page = 'login-view';
@@ -475,15 +587,7 @@ async function openPage(page) {
     await loadAds();
   }
   if (page === 'saved') await loadAds(true);
-  if (page === 'account' && state.profile.isOwner) {
-    const owner = await api('owner');
-    $('balance').textContent = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(owner.netRub);
-    $('accounts').textContent = money.format(owner.accounts);
-    $('api-daily').textContent = money.format(owner.budget.today) + ' / ' + money.format(owner.budget.daily);
-    $('api-monthly').textContent = money.format(owner.budget.month) + ' / ' + money.format(owner.budget.monthly);
-    $('source').textContent = owner.liveFeed && owner.lastSync ? shortTime.format(owner.lastSync)
-      : owner.liveFeed ? 'Ожидает загрузки' : 'Не подключён';
-  }
+  if (page === 'account' && state.profile.isOwner) await loadOwnerOverview();
 }
 
 function run(callback) {

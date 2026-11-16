@@ -77,6 +77,15 @@ export function openStore(dataDir, journalMode = process.env.SQLITE_JOURNAL_MODE
       user_id INTEGER PRIMARY KEY,
       plan TEXT NOT NULL CHECK (plan IN ('basic', 'medium', 'fast'))
     );
+    CREATE TABLE IF NOT EXISTS owner_plan_changes (
+      id INTEGER PRIMARY KEY,
+      actor_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      previous_plan TEXT NOT NULL,
+      new_plan TEXT NOT NULL,
+      changed_at INTEGER NOT NULL,
+      paused_searches INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS watches (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
