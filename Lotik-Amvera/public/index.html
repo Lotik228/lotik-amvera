@@ -91,12 +91,40 @@
         <h1>Избранное</h1><p class="subtext">Объявления, которые вы сохранили.</p>
         <div id="saved-ads" class="list"></div><button type="button" class="secondary more" id="next-saved" hidden>Показать ещё</button>
       </section>
-      <section id="plans" class="view panel-view web-only" hidden>
-        <h1>Доступ к поиску на сайте</h1><p class="subtext">Тариф мониторинга в Telegram назначает владелец бота отдельно.</p>
-        <div class="plans-grid">
-          <article class="card"><h2>Бесплатный веб-доступ</h2><ul><li>До 3 результатов на запрос</li></ul></article>
-          <article class="card pro"><h2>Лотик Pro на сайте</h2><p><span id="price">299</span> ₽ <small>/ 30 дней</small></p><ul><li>Все результаты поиска на сайте</li></ul><button type="button" id="subscribe" class="primary">Оплатить картой</button><p id="payment-status" class="helper"></p></article>
-        </div>
+      <section id="plans" class="view panel-view" hidden>
+        <h1>Подписка</h1>
+        <p class="subtext" id="plans-context"></p>
+        <div class="plan-summary" role="status"><strong id="plans-current"></strong><span id="plans-expiry"></span></div>
+        <fieldset class="plans-grid">
+          <legend class="plan-legend">Сравнить тарифы</legend>
+          <article class="plan-card plan-standard" data-plan="basic">
+            <div class="plan-heading">
+              <h2><label><input type="radio" name="plan-preview" value="basic"> Standard</label></h2>
+              <span class="plan-badge" hidden>Текущий</span>
+            </div>
+            <p class="plan-price">Бесплатно</p>
+            <ul class="plan-features"></ul>
+          </article>
+          <article class="plan-card plan-pro" data-plan="medium">
+            <div class="plan-heading">
+              <h2><label><input type="radio" name="plan-preview" value="medium"> Pro</label></h2>
+              <span class="plan-badge" hidden>Текущий</span>
+            </div>
+            <p class="plan-price">299 ₽ <span>за 30 дней</span></p>
+            <ul class="plan-features"></ul>
+            <button class="plan-soon" type="button" disabled aria-label="Оплата Pro скоро">Скоро</button>
+          </article>
+          <article class="plan-card plan-premium" data-plan="fast">
+            <div class="plan-heading">
+              <h2><label><input type="radio" name="plan-preview" value="fast"> Premium</label></h2>
+              <span class="plan-badge" hidden>Текущий</span>
+            </div>
+            <p class="plan-price">599 ₽ <span>за 30 дней</span></p>
+            <ul class="plan-features"></ul>
+            <button class="plan-soon" type="button" disabled aria-label="Оплата Premium скоро">Скоро</button>
+          </article>
+        </fieldset>
+        <p id="plans-note" class="helper"></p>
       </section>
       <section id="account" class="view panel-view" hidden>
         <h1>Личный кабинет</h1>
@@ -146,7 +174,7 @@
       <button type="button" data-page="watch-view" aria-current="page"><span aria-hidden="true">◉</span>Лотик</button>
       <button type="button" data-page="feed"><span aria-hidden="true">▤</span>Лента</button>
       <button type="button" data-page="saved"><span aria-hidden="true">♡</span>Избранное</button>
-      <button type="button" data-page="plans" class="web-only"><span aria-hidden="true">☆</span>Подписка</button>
+      <button type="button" data-page="plans"><span aria-hidden="true">☆</span>Подписка</button>
       <button type="button" data-page="account"><span aria-hidden="true">◎</span>Кабинет</button>
     </nav>
   </div>

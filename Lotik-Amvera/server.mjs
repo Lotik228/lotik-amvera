@@ -10,7 +10,7 @@ import { createLookup, hasLookup, startWatchWorker } from './watch-worker.mjs';
 import { createMarketSearch, marketCities } from './market-search.mjs';
 import { apiBudgetStatus, budgetedFetch } from './api-budget.mjs';
 import { createSearchLookup, createSearchWorker, deleteSearch, linkSourceState, listSavedSearches, parseSearchUrl, saveSearch } from './saved-searches.mjs';
-import { addWatches, listWatches, parseListingLink, removeWatch, userPlan, watchStatus } from './watches.mjs';
+import { addWatches, listWatches, parseListingLink, plans, removeWatch, userPlan, userPlanKey, watchStatus } from './watches.mjs';
 import { endSession, getAccount, signIn, startSession } from './accounts.mjs';
 import { checkout, createYooKassaClient, handlePaymentWebhook, paymentState, reconcileLatestPayment } from './payments.mjs';
 import { changeOwnerPlan, ownerOverview, ownerUser } from './owner.mjs';
@@ -115,7 +115,7 @@ function webProfile(account, now) {
     name: account?.email, signedIn: Boolean(account), price: config.price, support: config.support,
     expiresAt: access?.expires_at ?? null, canSubscribe: canCheckout() && Boolean(account),
     testPayments, paymentState: account ? paymentState(db, account.id, now, testPayments) : null,
-    canCheckPayment: Boolean(account && cardApi), ...searchProfile(),
+    canCheckPayment: Boolean(account && cardApi), webPreviewLimit: FREE_LIMIT, ...searchProfile(),
   };
 }
 
@@ -288,9 +288,10 @@ const server = createServer(async (req, res) => {
     const hasPro = Boolean(active);
 
     if (req.method === 'GET' && route === '/api/me') {
+      const monitoringPlanKey = userPlanKey(db, user.id);
       return json(res, 200, {
         name, username, telegramId: user.id, isOwner, support: config.support,
-        monitoringPlan: userPlan(db, user.id), ...searchProfile(),
+        monitoringPlan: plans[monitoringPlanKey], monitoringPlanKey, monitoringPlans: plans, ...searchProfile(),
       });
     }
     if (req.method === 'GET' && route === '/api/feed') {

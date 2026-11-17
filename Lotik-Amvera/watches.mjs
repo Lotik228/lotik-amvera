@@ -35,7 +35,7 @@ export function extractLinks(message) {
   return [...new Map(listings.map(item => [item.id, item])).values()];
 }
 
-function userPlanKey(db, userId) {
+export function userPlanKey(db, userId) {
   return db.prepare('SELECT plan FROM watch_plans WHERE user_id = ?').get(userId)?.plan ?? 'basic';
 }
 

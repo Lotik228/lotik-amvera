@@ -465,7 +465,6 @@ function renderProfile(profile) {
     return;
   }
   $('avatar').textContent = [...profile.name][0]?.toLocaleUpperCase('ru') || '●';
-  if (web) $('price').textContent = money.format(profile.price);
   $('profile-name').textContent = profile.name;
   $('username').textContent = profile.username ? '@' + profile.username : '';
   $('membership').textContent = web
@@ -479,11 +478,38 @@ function renderProfile(profile) {
   $('order-status').textContent = orderStatus;
   $('order-status').hidden = !orderStatus;
   $('check-payment').hidden = !profile.canCheckPayment || !['pending', 'succeeded', 'partially_refunded'].includes(profile.paymentState);
-  $('subscribe').disabled = Boolean(profile.expiresAt) || !profile.canSubscribe;
-  $('subscribe').textContent = profile.expiresAt ? 'Лотик Pro активен'
-    : ['pending', 'not_started'].includes(profile.paymentState) ? 'Продолжить оплату' : 'Оплатить картой';
-  $('payment-status').textContent = !profile.canSubscribe ? 'Оплата пока недоступна.'
-    : profile.testPayments ? 'Тестовый магазин ЮKassa.' : 'Защищённая платёжная страница ЮKassa. Продление вручную.';
+}
+
+function renderSubscription(profile) {
+  const current = web ? (profile.expiresAt ? 'medium' : 'basic') : profile.monitoringPlanKey;
+  $('plans-context').textContent = web ? 'Тарифы веб-поиска. Мониторинг в Telegram подключается отдельно.'
+    : 'Тарифы мониторинга в Telegram. Текущий тариф назначает владелец Lotik.';
+  $('plans-note').textContent = web ? 'Выдача в Lotik доступна при подключённом источнике.'
+    : 'Интервалы указаны по настройкам тарифов. Проверки и уведомления требуют подключённого источника.';
+  $('plans-current').textContent = 'Текущий тариф недоступен';
+  $('plans-expiry').textContent = web && profile.expiresAt ? 'Действует до ' + dateFormat.format(profile.expiresAt * 1000)
+    : current === 'basic' ? 'Бесплатный доступ без срока' : current ? 'Дата окончания не задана' : '';
+
+  for (const card of $('plans').querySelectorAll('[data-plan]')) {
+    const key = card.dataset.plan;
+    const active = key === current;
+    const radio = card.querySelector('input');
+    radio.checked = active;
+    card.toggleAttribute('data-current', active);
+    card.querySelector('.plan-badge').hidden = !active;
+    if (active) $('plans-current').textContent = 'Текущий тариф · ' + radio.labels[0].textContent.trim();
+    const tier = profile.monitoringPlans?.[key];
+    const features = web ? {
+      basic: [profile.webPreviewLimit ? 'До ' + profile.webPreviewLimit + ' результатов на запрос' : 'Ограниченная выдача веб-поиска'],
+      medium: ['Полная выдача веб-поиска'],
+      fast: ['Условия веб-доступа пока не определены'],
+    }[key] : tier ? [
+      'Интервал проверки · ' + tier.label,
+      'Поиски с уведомлениями · до ' + tier.searchLimit,
+      'Уведомления о новых объявлениях и снижении цены',
+    ] : ['Настройки тарифа недоступны'];
+    card.querySelector('.plan-features').replaceChildren(...features.map(text => element('li', '', text)));
+  }
 }
 
 async function loadOwnerOverview() {
@@ -617,6 +643,7 @@ async function openPage(page) {
     await loadAds();
   }
   if (page === 'saved') await loadAds(true);
+  if (page === 'plans') renderSubscription(state.profile);
   if (page === 'account' && state.profile.isOwner) await loadOwnerOverview();
 }
 
@@ -717,18 +744,6 @@ for (const id of ['city', 'category', 'sort']) $(id).addEventListener('change', 
 });
 $('next-feed').addEventListener('click', () => run(() => loadAds(false, true)));
 $('next-saved').addEventListener('click', () => run(() => loadAds(true, true)));
-
-$('subscribe').addEventListener('click', () => run(async () => {
-  $('subscribe').disabled = true;
-  try {
-    const result = await api('subscribe', 'POST');
-    if (result.checkoutUrl) return window.location.assign(result.checkoutUrl);
-    if (result.paid || result.canceled) await refreshProfile();
-    if (result.canceled) notice('Платёж отменён. Вы можете попробовать ещё раз.');
-  } finally {
-    $('subscribe').disabled = Boolean(state.profile.expiresAt) || !state.profile.canSubscribe;
-  }
-}));
 
 $('logout').addEventListener('click', () => run(async () => {
   await api('logout', 'POST');
