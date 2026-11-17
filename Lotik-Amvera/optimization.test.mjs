@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { apiBudgetStatus, budgetedFetch } from './api-budget.mjs';
 import { handleBotUpdate } from './bot.mjs';
-import { createSearchLookup, createSearchWorker, linkSourceState, listSavedSearches, parseSearchUrl, saveSearch } from './saved-searches.mjs';
+import { createSearchLookup, createSearchWorker, linkSourceState, listSavedSearches, parseSearchUrl, resolveWatchLink, saveSearch } from './saved-searches.mjs';
 import { openStore } from './store.mjs';
 import { createWatchWorker } from './watch-worker.mjs';
 import { addWatches, parseListingLink, setPlan } from './watches.mjs';
@@ -10,6 +10,35 @@ import { addWatches, parseListingLink, setPlan } from './watches.mjs';
 const url = id => 'https://www.avito.ru/moskva/telefony/phone_' + id;
 const ad = (id, price) => ({ id, price, url: url(id), title: 'Телефон ' + id });
 const search = { query: 'iPhone 15', city: 'moskva', maxPrice: 0 };
+
+test('resolves both tracking link types, preserves all search filters and rejects unsupported links', () => {
+  const source = 'https://m.avito.ru/moskva/telefony?q=Pixel&priceMax=40000&f=1&f=2#results';
+  assert.deepEqual(resolveWatchLink(source), { kind: 'search', url: source });
+  const listing = url('1234567890');
+  assert.deepEqual(resolveWatchLink(listing + '?utm_source=test'), { kind: 'listing', url: listing, id: '1234567890' });
+  assert.equal(resolveWatchLink('https://avito.ru/items/1234567890').kind, 'listing');
+  for (const rejected of [
+    'https://avito.ru.example.org/moskva/phone_1234567890', 'http://avito.ru/moskva/phone_1234567890',
+    'https://avito.ru/profile/user_1234567890', 'https://avito.ru/%70rofile/user_1234567890',
+    'https://avito.ru/?q=%GG', 'https://avito.ru/',
+  ]) assert.throws(() => resolveWatchLink(rejected), { status: 400 });
+});
+
+test('tracking names belong to one user and survive notification changes', () => {
+  const db = openStore(':memory:');
+  const sourceUrl = 'https://avito.ru/moskva/telefony?q=Pixel';
+  const input = { sourceUrl, newEnabled: true, dropEnabled: false };
+  saveSearch(db, 1, { ...input, name: ' Мой телефон ' }, 200);
+  saveSearch(db, 2, { ...input, name: 'Подарок' }, 200);
+  const id = listSavedSearches(db, 1)[0].id;
+  saveSearch(db, 1, { id, newEnabled: false, dropEnabled: true }, 201);
+  assert.equal(listSavedSearches(db, 1)[0].tracking_name, 'Мой телефон');
+  assert.equal(listSavedSearches(db, 2)[0].tracking_name, 'Подарок');
+  assert.throws(() => saveSearch(db, 1, { ...input, name: 'X'.repeat(101) }, 202), { status: 400 });
+  addWatches(db, 1, [{ ...parseListingLink(url('1234567890')), name: 'Объявление' }], 200);
+  assert.equal(db.prepare('SELECT tracking_name FROM watches WHERE user_id = 1').get().tracking_name, 'Объявление');
+  db.close();
+});
 
 test('preserves notification settings for saved links with no source and does not run them through text lookup', async () => {
   const db = openStore(':memory:');

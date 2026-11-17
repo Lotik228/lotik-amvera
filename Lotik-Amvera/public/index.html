@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#f5f6f0">
   <title>Лотик · Объявления Авито</title>
   <link rel="icon" href="/lotik-logo.jpg" type="image/jpeg">
@@ -18,27 +18,58 @@
     </header>
     <main>
       <p id="notice" class="notice" role="status" hidden></p>
-      <section id="watch-view" class="view" hidden>
-        <div class="hero">
-          <div class="hero-text"><h1>Отслеживание</h1><p>Вставьте ссылку на результаты поиска Авито или на отдельное объявление.</p></div>
+      <section id="watch-view" class="view home-view" hidden>
+        <div class="hero home-hero">
+          <div class="hero-text"><h1>Не упусти выгодное объявление</h1><p>Следи за новыми объявлениями и снижением цен на Авито</p></div>
           <div class="radar" aria-hidden="true"><i></i><i></i><i></i><b></b><b></b><span></span></div>
         </div>
-        <form id="watch-form" class="filters">
-          <label for="watch-url">Ссылка на поиск или объявление Авито</label>
+        <form id="watch-form" class="card home-create" aria-labelledby="watch-form-title">
+          <h2 id="watch-form-title">Что будем отслеживать?</h2>
           <div class="search watch-input">
-            <input id="watch-url" name="url" type="text" inputmode="url" placeholder="https://www.avito.ru/…" autocapitalize="off" spellcheck="false" maxlength="8192" required>
-            <button id="watch-submit" class="primary" type="submit">Отслеживать</button>
+            <input id="watch-url" name="url" type="text" inputmode="url" aria-label="Ссылка на Авито" placeholder="Вставьте ссылку на Авито" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="8192" required>
           </div>
-        </form>
-        <div id="watch-plan" class="watch-plan">
+          <button id="watch-submit" class="primary" type="submit">Начать отслеживание</button>
           <p id="watch-plan-label" class="helper"></p>
-        </div>
+          <p id="watch-entry-message" class="watch-message" role="status" hidden></p>
+        </form>
+        <section class="card home-tracking" aria-labelledby="watch-overview-title">
+          <div class="home-tracking-head"><div><h2 id="watch-overview-title">Мои отслеживания</h2><p class="helper" id="watch-count">Загружаем отслеживания…</p></div>
+            <button type="button" class="secondary" data-page="watch-list-view">Посмотреть все</button>
+          </div>
+          <ul class="home-preview" id="watch-preview" hidden></ul>
+          <p class="home-empty helper" id="watch-empty" hidden>Здесь будут ваши поиски и объявления.</p>
+        </section>
+      </section>
+      <section id="watch-setup-view" class="view panel-view" hidden>
+        <button class="secondary" type="button" data-page="watch-view">← Главная</button>
+        <h1 tabindex="-1" id="watch-setup-title">Настройка отслеживания</h1>
+        <p class="subtext" id="watch-setup-kind"></p>
+        <form id="watch-setup-form" class="card saved-search-form">
+          <a class="ad-title" id="watch-setup-link" target="_blank" rel="noopener noreferrer">Открыть на Авито ↗</a>
+          <label class="field-label">Название отслеживания
+            <input name="name" type="text" maxlength="100" autocomplete="off" placeholder="Например, телефон">
+          </label>
+          <div id="watch-setup-search" class="saved-search-form" hidden>
+            <p id="watch-setup-filters" class="helper"></p>
+            <div class="watch-switches">
+              <label><input type="checkbox" role="switch" name="newEnabled" checked> Новые объявления</label>
+              <label><input type="checkbox" role="switch" name="dropEnabled"> Снижение цены</label>
+            </div>
+          </div>
+          <p class="watch-message" id="watch-setup-message" role="status" hidden></p>
+          <button class="primary" id="watch-setup-save" type="submit">Сохранить отслеживание</button>
+        </form>
+      </section>
+      <section id="watch-list-view" class="view panel-view" hidden>
+        <button class="secondary" type="button" data-page="watch-view">← Главная</button>
+        <h1>Мои отслеживания</h1>
         <p id="watch-status" class="watch-message" role="status" hidden></p>
         <div class="section-head watch-header"><div><h2>Отслеживаемые объявления</h2><p id="watch-summary"></p></div></div>
         <div id="watch-list" class="list"></div>
         <div class="watch-paging"><button id="watch-prev" class="secondary" type="button" hidden>Назад</button><button id="watch-next" class="secondary" type="button" hidden>Далее</button></div>
         <div class="section-head watch-header"><div><h2>Отслеживание поиска</h2><p id="saved-search-summary"></p></div></div>
-        <form id="saved-search-form" class="card saved-search-form">
+        <details class="card search-advanced"><summary>Добавить поиск по запросу</summary>
+        <form id="saved-search-form" class="saved-search-form">
           <div class="search watch-input"><input name="query" type="search" placeholder="Например, iPhone 15" aria-label="Запрос для отслеживания" required maxlength="100"></div>
           <div class="saved-search-filters"><select name="city" id="saved-search-city" aria-label="Город поиска"></select>
             <input name="maxPrice" type="number" min="0" max="10000000000" inputmode="numeric" placeholder="Цена до, ₽" aria-label="Максимальная цена отслеживания"></div>
@@ -48,10 +79,7 @@
           </div>
           <button class="primary" type="submit" id="save-search">Сохранить поиск</button>
         </form>
-        <form id="saved-search-link-form" class="card saved-search-form">
-          <div class="search watch-input"><input name="sourceUrl" type="url" placeholder="Ссылка на поиск Авито" aria-label="Ссылка на поиск Авито" required maxlength="8192"></div>
-          <button class="secondary" type="submit">Сохранить ссылку</button>
-        </form>
+        </details>
         <p id="saved-search-message" class="watch-message" role="status" hidden></p>
         <div id="saved-search-list" class="list"></div>
       </section>
@@ -171,7 +199,7 @@
       </section>
     </main>
     <nav id="nav" class="nav" aria-label="Разделы" hidden>
-      <button type="button" data-page="watch-view" aria-current="page"><span aria-hidden="true">◉</span>Лотик</button>
+      <button type="button" data-page="watch-view" aria-current="page"><span aria-hidden="true">◉</span>Главная</button>
       <button type="button" data-page="feed"><span aria-hidden="true">▤</span>Лента</button>
       <button type="button" data-page="saved"><span aria-hidden="true">♡</span>Избранное</button>
       <button type="button" data-page="plans"><span aria-hidden="true">☆</span>Подписка</button>

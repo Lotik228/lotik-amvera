@@ -203,6 +203,11 @@ export function openStore(dataDir, journalMode = process.env.SQLITE_JOURNAL_MODE
     if (!columns.some(column => column.name === 'source_url')) {
       db.exec('ALTER TABLE saved_searches ADD COLUMN source_url TEXT');
     }
+    for (const table of ['watches', 'saved_search_users']) {
+      if (!db.prepare('PRAGMA table_info(' + table + ')').all().some(column => column.name === 'tracking_name')) {
+        db.exec('ALTER TABLE ' + table + ' ADD COLUMN tracking_name TEXT');
+      }
+    }
   });
   return db;
 }

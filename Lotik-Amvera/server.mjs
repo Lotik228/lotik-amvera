@@ -9,8 +9,8 @@ import { handleBotUpdate } from './bot.mjs';
 import { createLookup, hasLookup, startWatchWorker } from './watch-worker.mjs';
 import { createMarketSearch, marketCities } from './market-search.mjs';
 import { apiBudgetStatus, budgetedFetch } from './api-budget.mjs';
-import { createSearchLookup, createSearchWorker, deleteSearch, linkSourceState, listSavedSearches, parseSearchUrl, saveSearch } from './saved-searches.mjs';
-import { addWatches, listWatches, parseListingLink, plans, removeWatch, userPlan, userPlanKey, watchStatus } from './watches.mjs';
+import { createSearchLookup, createSearchWorker, deleteSearch, linkSourceState, listSavedSearches, resolveWatchLink, saveSearch } from './saved-searches.mjs';
+import { addWatches, listWatches, plans, readTrackingName, removeWatch, userPlan, userPlanKey, watchStatus } from './watches.mjs';
 import { endSession, getAccount, signIn, startSession } from './accounts.mjs';
 import { checkout, createYooKassaClient, handlePaymentWebhook, paymentState, reconcileLatestPayment } from './payments.mjs';
 import { changeOwnerPlan, ownerOverview, ownerUser } from './owner.mjs';
@@ -126,25 +126,22 @@ async function watchRoute(req, res, url, id, now) {
     const { rows, hasNext } = listWatches(db, id, page);
     return json(res, 200, {
       plan: userPlan(db, id), enabled, hasNext, now,
+      total: db.prepare('SELECT COUNT(*) AS total FROM watches WHERE user_id = ?').get(id).total,
       rows: rows.map(row => ({
         id: row.listing_id, url: row.url, dueAt: row.due_at, checkedAt: row.checked_at,
-        title: row.last_title, status: watchStatus(row),
+        title: row.last_title, name: row.tracking_name, status: watchStatus(row),
       })),
     });
   }
   if (req.method === 'POST') {
     const input = await body(req);
-    const sourceUrl = parseSearchUrl(input?.url);
-    if (sourceUrl) {
-      const search = saveSearch(db, id, { sourceUrl, newEnabled: true, dropEnabled: false }, now, { allowSaveOnly: true });
+    const link = resolveWatchLink(input?.url);
+    if (link.kind === 'search') {
+      const search = saveSearch(db, id, { sourceUrl: link.url, name: input.name, newEnabled: true, dropEnabled: false }, now, { allowSaveOnly: true });
       return json(res, 200, { kind: 'search', ...search, sourceState: linkSourceState(db, config.parserMode === 'live') });
     }
-    const value = typeof input?.url === 'string' ? input.url.trim() : '';
-    const listing = /^(?:https:\/\/)?(?:www\.|m\.)?avito\.ru\//i.test(value) && !/[\s\\\p{Cc}]/u.test(value)
-      ? parseListingLink(value) : null;
-    if (!listing) return json(res, 400, { error: 'Вставьте HTTPS-ссылку на поиск или объявление Авито.' });
     if (!enabled) return json(res, 409, { error: 'Объявление не добавлено. Проверка отдельных объявлений недоступна без источника.' });
-    const added = addWatches(db, id, [listing], now) === 1;
+    const added = addWatches(db, id, [{ ...link, name: readTrackingName(input.name) }], now) === 1;
     return json(res, 200, { added });
   }
   if (req.method === 'DELETE') {
@@ -280,6 +277,9 @@ const server = createServer(async (req, res) => {
     const username = user.username ?? null;
     if (!web && (route === '/api/me' || !findTelegramUser.get(user.id))) {
       saveTelegramUser.run(user.id, name, username);
+    }
+    if (req.method === 'POST' && route === '/api/watches/resolve') {
+      return json(res, 200, { ...resolveWatchLink((await body(req))?.url), listingEnabled: Boolean(watchLookup) });
     }
     if (route === '/api/watches') return await watchRoute(req, res, url, user.id, now);
     if (route === '/api/search-watches') return await searchWatchRoute(req, res, user.id, now);

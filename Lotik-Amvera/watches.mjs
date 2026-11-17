@@ -22,6 +22,14 @@ export function parseListingLink(value) {
   return { id, url: 'https://www.avito.ru' + url.pathname.replace(/\/$/, '') };
 }
 
+export function readTrackingName(value) {
+  if (value == null) return null;
+  if (typeof value !== 'string' || value.trim().length > 100 || /\p{Cc}/u.test(value)) {
+    throw Object.assign(new Error('Введите название длиной до 100 символов.'), { status: 400 });
+  }
+  return value.trim() || null;
+}
+
 export function extractMessageLinks(message) {
   const text = message.text ?? message.caption ?? '';
   const entities = message.entities ?? message.caption_entities ?? [];
@@ -79,9 +87,9 @@ export function setPlan(db, userId, key, now, { actorId, expectedPlan } = {}) {
 export function addWatches(db, userId, listings, now) {
   return transaction(db, () => {
     const due = now + userPlan(db, userId).seconds;
-    const insert = db.prepare('INSERT OR IGNORE INTO watches (user_id, listing_id, url, due_at) VALUES (?, ?, ?, ?)');
+    const insert = db.prepare('INSERT OR IGNORE INTO watches (user_id, listing_id, url, due_at, tracking_name) VALUES (?, ?, ?, ?, ?)');
     let added = 0;
-    for (const item of listings) added += insert.run(userId, item.id, item.url, due).changes;
+    for (const item of listings) added += insert.run(userId, item.id, item.url, due, item.name ?? null).changes;
     return added;
   });
 }

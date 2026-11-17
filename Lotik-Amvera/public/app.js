@@ -100,8 +100,8 @@ async function loadList(path, target, key, request) {
   }
 }
 
-function watchMessage(text, error = false) {
-  const message = $('watch-status');
+function trackingMessage(id, text, error = false) {
+  const message = $(id);
   message.textContent = text || '';
   message.hidden = !text;
   message.classList.toggle('error', error);
@@ -112,7 +112,7 @@ function updateWatchCountdowns() {
   for (const node of document.querySelectorAll('[data-watch-due]')) {
     const remaining = Math.max(0, Number(node.dataset.watchDue) - now);
     if (!remaining) {
-      node.textContent = 'Проверяем объявление…';
+      node.textContent = 'Ожидает проверки.';
       continue;
     }
     const minutes = Math.floor(remaining / 60);
@@ -135,12 +135,13 @@ async function loadWatches() {
     return;
   }
   state.watchSnapshot = snapshot;
-  $('watch-plan-label').textContent = data.plan.name + ' · проверка через каждые ' + data.plan.label;
+  state.watchData = data;
+  renderTrackingOverview();
   $('watch-summary').textContent = data.enabled ? '' : 'Проверка отдельных объявлений недоступна без источника.';
   const cards = data.rows.map(row => {
     const card = element('article', 'card watch-row');
     const info = element('div', '');
-    const title = element('a', 'ad-title', (row.title || 'Объявление № ' + row.id) + ' ↗');
+    const title = element('a', 'ad-title', listingTrackingName(row) + ' ↗');
     title.href = row.url;
     title.target = '_blank';
     title.rel = 'noopener noreferrer';
@@ -162,7 +163,7 @@ async function loadWatches() {
         await api('watches', 'DELETE', { id: row.id });
         if (data.rows.length === 1 && state.watchPage > 1) state.watchPage--;
         await loadWatches();
-        watchMessage('Отслеживание остановлено.');
+        trackingMessage('watch-status', 'Отслеживание остановлено.');
       } finally {
         setActionBusy(remove, false);
       }
@@ -176,31 +177,101 @@ async function loadWatches() {
   updateWatchCountdowns();
 }
 
-async function trackLink() {
-  if (state.addingWatch) return;
+function listingTrackingName(row) {
+  return row.name || row.title || 'Объявление № ' + row.id;
+}
+
+function searchTrackingName(row) {
+  return row.tracking_name || (row.source_url ? new URL(row.source_url).searchParams.get('q')?.trim().slice(0, 100)
+    || 'Поиск по ссылке Авито' : row.query);
+}
+
+function renderTrackingOverview() {
+  const watches = state.watchData;
+  const searches = state.searchData;
+  if (!watches || !searches) return;
+  const active = searches.rows.filter(row => row.new_enabled || row.drop_enabled).length;
+  $('watch-plan-label').textContent = searches.plan.name + ' · поиски с уведомлениями: ' + active + ' из ' + searches.plan.searchLimit;
+  const total = watches.total + searches.rows.length;
+  $('watch-count').textContent = 'Сохранено: ' + total;
+  $('watch-empty').hidden = total > 0;
+  const preview = $('watch-preview');
+  const items = [...searches.rows.slice(0, 2).map(row => ['Поиск', searchTrackingName(row)]),
+    ...watches.rows.slice(0, 2).map(row => ['Объявление', listingTrackingName(row)])];
+  preview.hidden = !items.length;
+  preview.replaceChildren(...items.slice(0, 3).map(([kind, title]) => {
+    const item = element('li', '');
+    item.append(element('span', '', title), element('small', '', kind));
+    return item;
+  }));
+}
+
+async function setupTrackingLink() {
   const field = $('watch-url');
   const url = field.value.trim();
-  if (!url) return;
-  state.addingWatch = true;
-  setActionBusy($('watch-submit'), true);
-  watchMessage('Добавляем ссылку…');
+  const button = $('watch-submit');
+  if (!url || button.disabled) return;
+  setActionBusy(button, true);
+  trackingMessage('watch-entry-message', '');
   try {
-    const result = await api('watches', 'POST', { url });
-    if (field.value.trim() === url) field.value = '';
-    if (result.kind === 'search') {
-      await loadSavedSearches();
-      watchMessage(searchSavedText(result));
-      return;
+    const link = await api('watches/resolve', 'POST', { url });
+    if (state.page !== 'watch-view' || field.value.trim() !== url) return;
+    state.trackingDraft = link;
+    const search = link.kind === 'search';
+    const form = $('watch-setup-form');
+    form.reset();
+    $('watch-setup-link').href = link.url;
+    $('watch-setup-kind').textContent = search ? 'Поиск по ссылке Авито' : 'Отдельное объявление Авито';
+    $('watch-setup-search').hidden = !search;
+    if (search) {
+      const avitoUrl = new URL(link.url);
+      form.elements.name.value = avitoUrl.searchParams.get('q')?.trim().slice(0, 100) || '';
+      const city = state.profile.searchCities?.[avitoUrl.pathname.split('/')[1]];
+      const max = avitoUrl.searchParams.get('pmax') ?? avitoUrl.searchParams.get('priceMax') ?? avitoUrl.searchParams.get('price_max');
+      $('watch-setup-filters').textContent = [
+        city && 'Регион · ' + city,
+        /^\d{1,11}$/.test(max ?? '') && Number(max) > 0 && 'Цена до ' + money.format(Number(max)) + ' ₽',
+        'Фильтры берутся из ссылки. Измените их на Авито и вставьте обновлённую ссылку.',
+      ].filter(Boolean).join(' · ');
     }
-    state.watchPage = 1;
-    await loadWatches();
-    watchMessage(result.added ? 'Отслеживание включено.' : 'Это объявление уже отслеживается.');
+    $('watch-setup-save').disabled = !search && !link.listingEnabled;
+    trackingMessage('watch-setup-message', !search && !link.listingEnabled
+      ? 'Для отдельных объявлений нужен подключённый источник. Сейчас сохранить объявление нельзя.' : '');
+    field.blur();
+    await openPage('watch-setup-view');
+    $('watch-setup-title').focus({ preventScroll: true });
   } catch (error) {
-    watchMessage(error.message, true);
+    trackingMessage('watch-entry-message', error.message, true);
   } finally {
-    state.addingWatch = false;
-    setActionBusy($('watch-submit'), false);
+    setActionBusy(button, false);
   }
+}
+
+async function saveTrackingLink(form) {
+  const link = state.trackingDraft;
+  const button = $('watch-setup-save');
+  if (!link || button.disabled) return;
+  const name = form.elements.name.value;
+  setActionBusy(button, true);
+  trackingMessage('watch-setup-message', '');
+  let result;
+  try {
+    result = link.kind === 'search'
+      ? await api('search-watches', 'POST', { sourceUrl: link.url, name, ...savedSearchSettings(form) })
+      : await api('watches', 'POST', { url: link.url, name });
+  } catch (error) {
+    trackingMessage('watch-setup-message', error.message, true);
+    return;
+  } finally {
+    setActionBusy(button, false);
+  }
+  if (state.trackingDraft !== link || state.page !== 'watch-setup-view') return;
+  state.trackingDraft = null;
+  $('watch-url').value = '';
+  document.activeElement.blur();
+  trackingMessage('watch-entry-message', link.kind === 'search' ? searchSavedText(result)
+    : result.added ? 'Объявление добавлено.' : 'Это объявление уже отслеживается.');
+  await openPage('watch-view');
 }
 
 function savedSearchMessage(text, error = false) {
@@ -241,6 +312,8 @@ async function loadSavedSearches() {
   const snapshot = JSON.stringify(data);
   if (snapshot === state.savedSearchSnapshot) return;
   state.savedSearchSnapshot = snapshot;
+  state.searchData = data;
+  renderTrackingOverview();
   const city = $('saved-search-city');
   const current = city.value;
   city.replaceChildren(...Object.entries(data.cities).map(([key, label]) => new Option(label, key)));
@@ -266,8 +339,7 @@ async function loadSavedSearches() {
       }
     }));
     if (row.source_url) {
-      const url = new URL(row.source_url);
-      card.append(element('h3', '', url.searchParams.get('q')?.trim().slice(0, 100) || 'Поиск по ссылке Авито'));
+      card.append(element('h3', '', searchTrackingName(row)));
       const link = element('a', 'ad-title', 'Открыть поиск на Авито ↗');
       link.href = row.source_url;
       link.target = '_blank';
@@ -278,7 +350,7 @@ async function loadSavedSearches() {
       });
       card.append(link);
     } else {
-      card.append(element('h3', '', row.query));
+      card.append(element('h3', '', searchTrackingName(row)));
     }
     const location = row.source_url ? '' : data.cities[row.city];
     const sourceEnabled = row.source_url ? data.linkEnabled : data.enabled;
@@ -462,6 +534,15 @@ function renderProfile(profile) {
   $('avatar').hidden = signedOut;
   if (signedOut) {
     $('avatar').textContent = '→';
+    state.requests.watches = state.requests.savedSearches = null;
+    state.watchSnapshot = state.savedSearchSnapshot = null;
+    state.watchData = state.searchData = state.trackingDraft = null;
+    for (const id of ['watch-list', 'saved-search-list', 'watch-preview']) $(id).replaceChildren();
+    $('watch-preview').hidden = $('watch-empty').hidden = true;
+    $('watch-count').textContent = 'Загружаем отслеживания…';
+    $('watch-plan-label').textContent = '';
+    $('watch-url').value = '';
+    trackingMessage('watch-entry-message', '');
     return;
   }
   $('avatar').textContent = [...profile.name][0]?.toLocaleUpperCase('ru') || '●';
@@ -629,15 +710,26 @@ async function openPage(page) {
   if (!state.profile || page === 'account' || page === 'plans') await refreshProfile();
   if (web && !state.profile.signedIn) page = 'login-view';
   state.page = page;
+  if (page !== 'watch-setup-view') state.trackingDraft = null;
   notice('');
   for (const view of document.querySelectorAll('.view')) view.hidden = view.id !== page;
   for (const button of document.querySelectorAll('.nav [data-page]')) {
-    if (button.dataset.page === page) button.setAttribute('aria-current', 'page');
+    if (button.dataset.page === page || (button.dataset.page === 'watch-view' && ['watch-setup-view', 'watch-list-view'].includes(page))) {
+      button.setAttribute('aria-current', 'page');
+    }
     else button.removeAttribute('aria-current');
   }
   window.scrollTo(0, 0);
-  if (page === 'watch-view') await loadWatches();
-  if (page === 'watch-view') await loadSavedSearches();
+  if (page === 'watch-view' || page === 'watch-list-view') {
+    if (page === 'watch-view') state.watchPage = 1;
+    try {
+      await Promise.all([loadWatches(), loadSavedSearches()]);
+      renderTrackingOverview();
+    } catch (error) {
+      $('watch-count').textContent = 'Не удалось обновить список.';
+      throw error;
+    }
+  }
   if (page === 'feed') {
     setupSearch();
     await loadAds();
@@ -657,7 +749,18 @@ for (const button of document.querySelectorAll('[data-page]')) {
 $('avatar').addEventListener('click', () => run(() => openPage('account')));
 $('watch-form').addEventListener('submit', event => {
   event.preventDefault();
-  run(trackLink);
+  run(setupTrackingLink);
+});
+$('watch-setup-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  run(() => saveTrackingLink(form));
+});
+$('watch-setup-link').addEventListener('click', event => {
+  if (initData && tg.openLink && state.trackingDraft) {
+    event.preventDefault();
+    tg.openLink(state.trackingDraft.url);
+  }
 });
 $('saved-search-form').addEventListener('submit', event => {
   event.preventDefault();
@@ -680,31 +783,12 @@ $('saved-search-form').addEventListener('submit', event => {
     }
   });
 });
-$('saved-search-link-form').addEventListener('submit', event => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const input = form.elements.sourceUrl;
-  const button = form.querySelector('button');
-  run(async () => {
-    setActionBusy(button, true);
-    try {
-      const result = await api('search-watches', 'POST', { sourceUrl: input.value.trim(), newEnabled: true, dropEnabled: false });
-      input.value = '';
-      await loadSavedSearches();
-      savedSearchMessage(searchSavedText(result));
-    } catch (error) {
-      savedSearchMessage(error.message, true);
-    } finally {
-      setActionBusy(button, false);
-    }
-  });
-});
 $('watch-url').addEventListener('paste', event => {
   const text = event.clipboardData?.getData('text/plain').trim();
   if (!text) return;
   event.preventDefault();
   $('watch-url').value = text;
-  run(trackLink);
+  run(setupTrackingLink);
 });
 $('watch-prev').addEventListener('click', () => run(async () => {
   state.watchPage--;
@@ -715,13 +799,13 @@ $('watch-next').addEventListener('click', () => run(async () => {
   await loadWatches();
 }));
 setInterval(() => {
-  if (state.page === 'watch-view') updateWatchCountdowns();
+  if (state.page === 'watch-list-view') updateWatchCountdowns();
 }, 1000);
 setInterval(() => {
-  if (state.page === 'watch-view' && !state.addingWatch) {
+  if (state.page === 'watch-list-view') {
     void loadWatches().catch(() => { $('watch-summary').textContent = 'Обновляем состояние отслеживания…'; });
+    void loadSavedSearches().catch(() => {});
   }
-  if (state.page === 'watch-view') void loadSavedSearches().catch(() => {});
 }, 3000);
 $('filters').addEventListener('submit', event => {
   event.preventDefault();

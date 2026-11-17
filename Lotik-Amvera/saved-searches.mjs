@@ -1,7 +1,7 @@
 import { claimAlert, dropText, isDrop, priceLabel } from './alerts.mjs';
 import { marketCities, normalizeSearch } from './market-search.mjs';
 import { transaction } from './store.mjs';
-import { nextSlot, parseListingLink, userPlan } from './watches.mjs';
+import { nextSlot, parseListingLink, readTrackingName, userPlan } from './watches.mjs';
 
 export function searchCriteria(input) {
   const query = typeof input?.query === 'string'
@@ -44,9 +44,26 @@ export function parseSearchUrl(value) {
   return candidate;
 }
 
+export function resolveWatchLink(input) {
+  const searchUrl = parseSearchUrl(input);
+  if (searchUrl) return { kind: 'search', url: searchUrl };
+  const value = typeof input === 'string' ? input.trim() : '';
+  const listing = value.length <= 8192 && /^(?:https:\/\/)?(?:www\.|m\.)?avito\.ru\//i.test(value)
+    && !/[\s\\\p{Cc}]|%(?![\da-f]{2})/iu.test(value) ? parseListingLink(value) : null;
+  if (listing) {
+    const path = new URL(listing.url).pathname;
+    let first = '';
+    try { first = decodeURIComponent(path.split('/')[1]).toLowerCase(); } catch { /* Invalid path encoding. */ }
+    if (first && (!nonCatalogPaths.has(first) || /^\/(?:i|items)\/\d+$/.test(path))) {
+      return { kind: 'listing', url: listing.url, id: listing.id };
+    }
+  }
+  throw Object.assign(new Error('Вставьте HTTPS-ссылку на поиск или объявление Авито.'), { status: 400 });
+}
+
 export function listSavedSearches(db, userId) {
   return db.prepare(`
-    SELECT sub.id, s.query, s.source_url, s.city, s.max_price, s.checked_at, sub.due_at, sub.new_enabled, sub.drop_enabled,
+    SELECT sub.id, s.query, s.source_url, s.city, s.max_price, s.checked_at, sub.due_at, sub.new_enabled, sub.drop_enabled, sub.tracking_name,
       (SELECT text FROM saved_search_activity WHERE subscription_id = sub.id AND kind = 'new') AS latest_new,
       (SELECT text FROM saved_search_activity WHERE subscription_id = sub.id AND kind = 'drop') AS latest_drop
     FROM saved_search_users AS sub JOIN saved_searches AS s ON s.id = sub.search_id
@@ -63,6 +80,7 @@ export function saveSearch(db, userId, input, now, { allowSaveOnly = false } = {
   if (typeof input?.newEnabled !== 'boolean' || typeof input?.dropEnabled !== 'boolean') {
     throw Object.assign(new Error('Укажите настройки уведомлений.'), { status: 400 });
   }
+  const name = readTrackingName(input.name);
   return transaction(db, () => {
     let existing;
     let searchId;
@@ -112,13 +130,14 @@ export function saveSearch(db, userId, input, now, { allowSaveOnly = false } = {
     const newCursor = existing?.new_enabled && newEnabled ? existing.new_cursor : last;
     const dropCursor = existing?.drop_enabled && dropEnabled ? existing.drop_cursor : last;
     db.prepare(`
-      INSERT INTO saved_search_users (search_id, user_id, new_enabled, drop_enabled, new_cursor, drop_cursor, due_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO saved_search_users (search_id, user_id, new_enabled, drop_enabled, new_cursor, drop_cursor, due_at, tracking_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(search_id, user_id) DO UPDATE SET
         new_enabled = excluded.new_enabled, drop_enabled = excluded.drop_enabled, new_cursor = excluded.new_cursor,
-        drop_cursor = excluded.drop_cursor, due_at = excluded.due_at
+        drop_cursor = excluded.drop_cursor, due_at = excluded.due_at,
+        tracking_name = COALESCE(excluded.tracking_name, saved_search_users.tracking_name)
     `).run(searchId, userId, Number(newEnabled), Number(dropEnabled), newCursor, dropCursor,
-      isOn(existing) ? existing.due_at : nextSlot(now, seconds));
+      isOn(existing) ? existing.due_at : nextSlot(now, seconds), name);
     const cancel = db.prepare('DELETE FROM search_notifications WHERE subscription_id = ? AND kind = ?');
     if (existing && !newEnabled) cancel.run(existing.id, 'new');
     if (existing && !dropEnabled) cancel.run(existing.id, 'drop');
