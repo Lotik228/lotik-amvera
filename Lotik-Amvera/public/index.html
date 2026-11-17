@@ -24,7 +24,11 @@
           <div class="radar" aria-hidden="true"><i></i><i></i><i></i><b></b><b></b><span></span></div>
         </div>
         <form id="watch-form" class="card home-create" aria-labelledby="watch-form-title">
-          <h2 id="watch-form-title">Что будем отслеживать?</h2>
+          <div class="home-create-heading">
+            <h2 id="watch-form-title">Что будем отслеживать?</h2>
+            <button id="watch-help-open" class="help-icon" type="button" aria-label="Как добавить отслеживание?"
+              aria-haspopup="dialog" aria-controls="watch-help">?</button>
+          </div>
           <div class="search watch-input">
             <input id="watch-url" name="url" type="text" inputmode="url" aria-label="Ссылка на Авито" placeholder="Вставьте ссылку на Авито" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="8192" required>
           </div>
@@ -205,6 +209,29 @@
       <button type="button" data-page="plans"><span aria-hidden="true">☆</span>Подписка</button>
       <button type="button" data-page="account"><span aria-hidden="true">◎</span>Кабинет</button>
     </nav>
+    <dialog class="watch-help" id="watch-help" aria-labelledby="watch-help-title" closedby="any">
+      <header class="watch-help-heading">
+        <h2 id="watch-help-title">Как добавить отслеживание?</h2>
+        <form method="dialog">
+          <button class="help-icon" type="submit" aria-label="Закрыть подсказку" autofocus>×</button>
+        </form>
+      </header>
+      <ol class="watch-help-steps">
+        <li><div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.75"/><path d="m15 15 4.5 4.5"/></svg>
+          <span>Открой Авито и найди интересующий товар либо выполни поиск.</span>
+        </div></li>
+        <li><div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4M6 11H5v9h14v-9h-1"/></svg>
+          <span>Нажми <strong>«Поделиться»</strong> и выбери <strong>«Скопировать ссылку»</strong>.</span>
+        </div></li>
+        <li><div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4H5v16h14V4h-3M8 3h8v4H8z"/><path d="m8 13 2.5 2.5 5-5"/></svg>
+          <span>Вернись в Lotik, вставь ссылку и нажми <strong>«Начать отслеживание»</strong>.</span>
+        </div></li>
+      </ol>
+      <a id="watch-help-video" class="primary" target="_blank" rel="noopener noreferrer" hidden>Смотреть видеоинструкцию ↗</a>
+    </dialog>
   </div>
 </body>
 </html>

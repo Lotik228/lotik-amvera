@@ -529,6 +529,11 @@ async function refreshProfile() {
 
 function renderProfile(profile) {
   state.profile = profile;
+  const video = $('watch-help-video');
+  const videoUrl = profile.trackingHelpVideoUrl;
+  video.hidden = !videoUrl;
+  if (videoUrl) video.href = videoUrl;
+  else video.removeAttribute('href');
   const signedOut = web && !profile.signedIn;
   $('nav').hidden = signedOut;
   $('avatar').hidden = signedOut;
@@ -747,6 +752,23 @@ for (const button of document.querySelectorAll('[data-page]')) {
   button.addEventListener('click', () => run(() => openPage(button.dataset.page)));
 }
 $('avatar').addEventListener('click', () => run(() => openPage('account')));
+$('watch-help-open').addEventListener('pointerdown', event => {
+  // Keep the keyboard from moving the opener before the browser dispatches the click.
+  if (document.activeElement === $('watch-url')) event.preventDefault();
+});
+$('watch-help-open').addEventListener('click', event => {
+  const dialog = $('watch-help');
+  if (dialog.open) return;
+  event.currentTarget.focus({ preventScroll: true });
+  dialog.showModal();
+});
+$('watch-help-video').addEventListener('click', event => {
+  const url = state.profile?.trackingHelpVideoUrl;
+  if (url && initData && tg.openTelegramLink) {
+    tg.openTelegramLink(url);
+    event.preventDefault();
+  }
+});
 $('watch-form').addEventListener('submit', event => {
   event.preventDefault();
   run(setupTrackingLink);

@@ -14,6 +14,7 @@ export function readConfig(env = process.env) {
     secret: env.WEBHOOK_SECRET,
     owner: Number(env.OWNER_TELEGRAM_ID),
     support: env.SUPPORT_CONTACT?.trim(),
+    trackingHelpVideoUrl: telegramPostUrl(env.TRACKING_HELP_VIDEO_URL),
     price: Number(env.CARD_PRICE_RUB || 299),
     shopId: env.YOOKASSA_SHOP_ID?.trim(),
     shopKey: env.YOOKASSA_SECRET_KEY?.trim(),
@@ -56,6 +57,11 @@ export function readConfig(env = process.env) {
       || !/^[A-Za-z0-9_-]{32,128}$/.test(config.paymentSecret ?? '')) throw new Error('Configure the YooKassa shop and webhook secret');
   }
   return config;
+}
+
+function telegramPostUrl(value) {
+  const candidate = value?.trim();
+  return /^https:\/\/t\.me\/(?:[a-z][a-z0-9_]{4,31}|c\/[1-9]\d*)\/[1-9]\d*$/i.test(candidate ?? '') ? candidate : null;
 }
 
 function httpsUrl(value, name) {

@@ -115,7 +115,8 @@ function webProfile(account, now) {
     name: account?.email, signedIn: Boolean(account), price: config.price, support: config.support,
     expiresAt: access?.expires_at ?? null, canSubscribe: canCheckout() && Boolean(account),
     testPayments, paymentState: account ? paymentState(db, account.id, now, testPayments) : null,
-    canCheckPayment: Boolean(account && cardApi), webPreviewLimit: FREE_LIMIT, ...searchProfile(),
+    canCheckPayment: Boolean(account && cardApi), webPreviewLimit: FREE_LIMIT,
+    trackingHelpVideoUrl: config.trackingHelpVideoUrl, ...searchProfile(),
   };
 }
 
@@ -291,7 +292,8 @@ const server = createServer(async (req, res) => {
       const monitoringPlanKey = userPlanKey(db, user.id);
       return json(res, 200, {
         name, username, telegramId: user.id, isOwner, support: config.support,
-        monitoringPlan: plans[monitoringPlanKey], monitoringPlanKey, monitoringPlans: plans, ...searchProfile(),
+        monitoringPlan: plans[monitoringPlanKey], monitoringPlanKey, monitoringPlans: plans,
+        trackingHelpVideoUrl: config.trackingHelpVideoUrl, ...searchProfile(),
       });
     }
     if (req.method === 'GET' && route === '/api/feed') {

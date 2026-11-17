@@ -60,7 +60,37 @@ h3 { margin-bottom: 3px; font-size: 1rem; }
 }
 .home-hero .radar i { border-color: #c6f77e42; }
 .home-create { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
-.home-create h2, .home-create > .helper, .home-create > .watch-message { grid-column: 1 / -1; margin: 0; }
+.home-create-heading, .home-create > .helper, .home-create > .watch-message { grid-column: 1 / -1; margin: 0; }
+.home-create-heading, .watch-help-heading { display: flex; align-items: center; gap: 3px; }
+.home-create-heading h2, .watch-help-heading h2 { margin: 0; }
+.help-icon {
+  display: grid; place-items: center; flex: 0 0 auto; inline-size: 44px; block-size: 44px;
+  padding: 0; border: 0; border-radius: 50%; color: var(--forest); font-weight: 800;
+  background: radial-gradient(circle, #e9f2e1 0 12px, transparent 13px);
+}
+.help-icon:hover { background: radial-gradient(circle, #dbeacc 0 12px, transparent 13px); }
+.watch-help {
+  --help-space: 12px;
+  width: min(430px, calc(100% - 2 * var(--help-space) - env(safe-area-inset-left) - env(safe-area-inset-right)));
+  max-height: calc(100% - 2 * var(--help-space) - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 2 * var(--help-space) - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  padding: clamp(14px, 4vw, 23px); border: 1px solid var(--line); border-radius: 18px;
+  background: var(--paper); color: var(--ink); box-shadow: 0 16px 55px #102e2633;
+  overflow: auto; overscroll-behavior: contain;
+}
+.watch-help::backdrop { background: #102e267d; }
+html:has(.watch-help[open]), body:has(.watch-help[open]) { overflow: hidden; }
+.watch-help-heading { justify-content: space-between; }
+.watch-help-heading h2 { line-height: 1.15; }
+.watch-help-heading button { font-size: 1.18rem; }
+.watch-help-steps { display: grid; gap: 12px; margin: 10px 0 0; padding-inline-start: 24px; }
+.watch-help-steps li { padding-inline-start: 3px; font-size: .9rem; line-height: 1.45; }
+.watch-help-steps li::marker { color: var(--forest); font-weight: 800; }
+.watch-help-steps li > div { display: grid; grid-template-columns: 31px minmax(0, 1fr); align-items: center; gap: 9px; }
+.watch-help-steps svg {
+  width: 31px; height: 31px; padding: 6px; border-radius: 8px; color: var(--forest); background: #edf4e7;
+}
+#watch-help-video { margin-top: 17px; }
 .home-create .search, .home-create .primary { min-height: 46px; }
 .home-create .search { background: #f7f9f4; }
 .home-tracking-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
@@ -228,6 +258,7 @@ button[aria-busy=true]::after {
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .watch-help[open] { animation: enter-view 180ms ease-out; }
   .home-hero .radar::before { animation: radar-sweep 15s linear infinite; }
   #plans:not([hidden]) .plan-card { animation: enter-view 250ms ease-out backwards; }
   #plans:not([hidden]) .plan-pro { animation-delay: 35ms; }

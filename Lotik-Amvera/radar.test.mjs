@@ -54,6 +54,20 @@ test('checkout is gated to local test mode even if the release environment enabl
   assert.equal(readConfig({ ...env, YOOKASSA_TEST: '1', AMVERA: '1' }).cardCheckoutEnabled, false);
 });
 
+test('help video configuration accepts a specific HTTPS Telegram post and hides invalid links', () => {
+  const env = {
+    BOT_TOKEN: '123456:fixture', WEBHOOK_SECRET: 'w'.repeat(32), OWNER_TELEGRAM_ID: '42',
+    SUPPORT_CONTACT: '@support', PUBLIC_URL: 'https://lotik.example.test',
+  };
+  for (const url of ['https://t.me/fixture_channel/42', 'https://t.me/c/12345/42']) {
+    assert.equal(readConfig({ ...env, TRACKING_HELP_VIDEO_URL: url }).trackingHelpVideoUrl, url);
+  }
+  for (const url of [undefined, '', 'https://t.me/fixture_channel', 'https://t.me.evil.test/fixture_channel/42',
+    'http://t.me/fixture_channel/42', 'javascript:alert(1)', 'https://t.me/fixture_channel/0']) {
+    assert.equal(readConfig({ ...env, TRACKING_HELP_VIDEO_URL: url }).trackingHelpVideoUrl, null);
+  }
+});
+
 test('feed keeps canonical Avito links and deduplicates by Avito ID', () => {
   const db = openStore(':memory:');
   const row = { title: 'Кресло', city: 'Москва', category: 'Для дома', price: 100,
