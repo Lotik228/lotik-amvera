@@ -538,6 +538,7 @@ function renderProfile(profile) {
   $('nav').hidden = signedOut;
   $('avatar').hidden = signedOut;
   if (signedOut) {
+    marketUi.reset();
     $('avatar').textContent = '→';
     state.requests.watches = state.requests.savedSearches = null;
     state.watchSnapshot = state.savedSearchSnapshot = null;
@@ -719,7 +720,8 @@ async function openPage(page) {
   notice('');
   for (const view of document.querySelectorAll('.view')) view.hidden = view.id !== page;
   for (const button of document.querySelectorAll('.nav [data-page]')) {
-    if (button.dataset.page === page || (button.dataset.page === 'watch-view' && ['watch-setup-view', 'watch-list-view'].includes(page))) {
+    if (button.dataset.page === page || (button.dataset.page === 'watch-view' && ['watch-setup-view', 'watch-list-view'].includes(page))
+      || (button.dataset.page === 'market' && ['market-editor', 'market-detail'].includes(page))) {
       button.setAttribute('aria-current', 'page');
     }
     else button.removeAttribute('aria-current');
@@ -739,7 +741,8 @@ async function openPage(page) {
     setupSearch();
     await loadAds();
   }
-  if (page === 'saved') await loadAds(true);
+  await marketUi.enter(page);
+  if (page === 'saved' && marketUi.avitoFavorite) await loadAds(true);
   if (page === 'plans') renderSubscription(state.profile);
   if (page === 'account' && state.profile.isOwner) await loadOwnerOverview();
 }
@@ -747,6 +750,13 @@ async function openPage(page) {
 function run(callback) {
   void callback().catch(error => notice(error.message));
 }
+
+const marketUi = createMarketUi({ api, element, openPage, notice, run, setActionBusy, tg, initData, web });
+$('favorite-market').addEventListener('click', () => run(() => marketUi.selectFavorite('market')));
+$('favorite-avito').addEventListener('click', () => run(async () => {
+  await marketUi.selectFavorite('avito');
+  await loadAds(true);
+}));
 
 for (const button of document.querySelectorAll('[data-page]')) {
   button.addEventListener('click', () => run(() => openPage(button.dataset.page)));

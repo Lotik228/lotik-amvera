@@ -16,6 +16,7 @@ import { checkout, createYooKassaClient, handlePaymentWebhook, paymentState, rec
 import { changeOwnerPlan, ownerOverview, ownerUser } from './owner.mjs';
 import { runParser } from './parser-loop.mjs';
 import { claimParserJob, finishParserJob, initializeParserStorage } from './parser-jobs.mjs';
+import { createLotikMarket } from './lotik-market.mjs';
 
 const FREE_LIMIT = 3;
 const config = readConfig();
@@ -23,6 +24,7 @@ const db = openStore(config.dataDir);
 const embeddedParser = process.env.LOTIK_EMBEDDED_PARSER === '1' && config.parserMode !== 'off';
 if (embeddedParser) initializeParserStorage(db, config.parserMode);
 const telegram = telegramClient(config.token, config.telegramTest);
+const lotikMarket = createLotikMarket(db, config.dataDir, telegram);
 const cardApi = config.shopId && createYooKassaClient(config);
 const testPayments = config.paymentTest;
 const findTelegramUser = db.prepare('SELECT 1 FROM users WHERE id = ?');
@@ -46,6 +48,8 @@ const assets = new Map([
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/theme.js', ['theme.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
+  ['/market-ui.js', ['market-ui.js', 'text/javascript; charset=utf-8']],
+  ['/market.css', ['market.css', 'text/css; charset=utf-8']],
   ['/lotik-logo.jpg', ['lotik-logo.jpg', 'image/jpeg']],
 ]);
 
@@ -69,6 +73,11 @@ function feedState() {
 function json(res, status, value) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(value));
+}
+
+function marketImage(res, image) {
+  res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': image.length, 'Cache-Control': 'no-store' });
+  res.end(image);
 }
 
 async function body(req) {
@@ -218,7 +227,7 @@ const server = createServer(async (req, res) => {
   const web = url.pathname === '/web' || url.pathname.startsWith('/web/');
   const route = web ? url.pathname.slice(4) : url.pathname;
   const sdk = web ? '' : ' https://telegram.org';
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'" + sdk + "; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'" + (web ? "; frame-ancestors 'none'" : ''));
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'" + sdk + "; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'" + (web ? "; frame-ancestors 'none'" : ''));
   const now = Math.floor(Date.now() / 1000);
   try {
     if (req.method === 'GET' && url.pathname === '/web') {
@@ -237,11 +246,14 @@ const server = createServer(async (req, res) => {
       return res.end(content);
     }
     if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { status: 'ok' });
+    const marketPhoto = /^\/market-photo\/([a-f0-9]{32})$/.exec(url.pathname);
+    if (req.method === 'GET' && marketPhoto) return marketImage(res, await lotikMarket.publicImage(marketPhoto[1]));
     if (req.method === 'POST' && url.pathname === '/telegram/webhook') {
       if (!matchesSecret(req.headers['x-telegram-bot-api-secret-token'], config.secret)) {
         return json(res, 403, { error: 'Доступ закрыт.' });
       }
-      await handleBotUpdate(db, telegram, config, await body(req), now);
+      const update = await body(req);
+      if (!await lotikMarket.relayReply(update, now)) await handleBotUpdate(db, telegram, config, update, now);
       return json(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url.pathname.startsWith('/payments/yookassa/')) {
@@ -286,6 +298,10 @@ const server = createServer(async (req, res) => {
     if (route === '/api/watches') return await watchRoute(req, res, url, user.id, now);
     if (route === '/api/search-watches') return await searchWatchRoute(req, res, user.id, now);
     const isOwner = !web && user.id === config.owner;
+    if (route.startsWith('/api/market/')) {
+      const result = await lotikMarket.route({ path: route.slice('/api/market'.length), req, url, userId: user.id, isOwner, now, body });
+      return Buffer.isBuffer(result) ? marketImage(res, result) : json(res, 200, result);
+    }
     const active = web && cardAccess(db, account.id, now, testPayments);
     const hasPro = Boolean(active);
 

@@ -1,6 +1,9 @@
 FROM node:24-slim
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pil \
+    && rm -rf /var/lib/apt/lists/*
 COPY Lotik-Amvera/package.json Lotik-Amvera/LICENSE.Grovvik.txt Lotik-Amvera/*.mjs ./
+COPY Lotik-Amvera/lotik-market-image.py ./
 COPY Lotik-Amvera/public/ ./public/
 ENV NODE_ENV=production \
     LOTIK_CONTAINER=1 \

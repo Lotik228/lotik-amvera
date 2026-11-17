@@ -8,7 +8,9 @@
   <link rel="icon" href="/lotik-logo.jpg" type="image/jpeg">
   <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/market.css">
   <!-- telegram-sdk -->
+  <script src="/market-ui.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -107,7 +109,75 @@
           <div class="auth-actions"><button class="primary" type="submit" value="login">Войти</button><button class="secondary" type="submit" value="register">Создать аккаунт</button></div>
         </form>
       </section>
+      <section id="market" class="view" hidden>
+        <div class="hero market-hero">
+          <div class="hero-text"><h1>Lotik Market</h1><p>Покупай и продавай товары напрямую другим пользователям Lotik</p></div>
+          <svg class="market-hero-store" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M3 10 5 4h14l2 6v2a3 3 0 0 1-5 2 3 3 0 0 1-4 0 3 3 0 0 1-4 0 3 3 0 0 1-5-2v-2Zm2 5v5h14v-5M9 20v-5m6 5v-5M3 10h18"/></svg>
+        </div>
+        <div class="market-actions">
+          <button class="primary" id="market-create" type="button">＋ Подать объявление</button>
+        </div>
+        <form class="filters market-filters" id="market-filters">
+          <div class="search"><input type="search" name="q" aria-label="Найти товар в Маркете" placeholder="Найти товар" maxlength="100"><button class="primary" type="submit">Найти</button></div>
+          <details class="card market-extra"><summary>Фильтры и сортировка</summary>
+            <div class="market-filter-grid">
+              <label>Категория<select name="category" id="market-search-category"></select></label>
+              <label>Город<input name="city" maxlength="80" list="market-cities" placeholder="Все города"></label>
+              <label>Цена от, ₽<input name="min" type="number" min="0" max="1000000000" inputmode="numeric"></label>
+              <label>Цена до, ₽<input name="max" type="number" min="0" max="1000000000" inputmode="numeric"></label>
+              <label>Сортировка<select name="sort"><option value="new">Сначала новые</option><option value="cheap">Сначала дешевле</option><option value="expensive">Сначала дороже</option></select></label>
+              <button class="secondary" type="submit">Применить</button>
+            </div>
+          </details>
+        </form>
+        <div class="market-grid" id="market-feed" aria-label="Объявления пользователей Lotik"></div>
+        <button class="secondary more" id="market-feed-more" type="button" hidden>Показать ещё</button>
+      </section>
+      <section id="market-editor" class="view panel-view" hidden>
+        <button class="secondary" id="market-editor-back" type="button">← Маркет</button>
+        <h1 id="market-editor-title">Новое объявление</h1>
+        <p class="subtext">Размещение бесплатное. Модератор проверит объявление перед публикацией.</p>
+        <form class="card market-form" id="market-editor-form">
+          <label>Название товара<input name="title" maxlength="100" required></label>
+          <div class="market-filter-grid">
+            <label>Цена, ₽<input name="price" type="number" min="0" max="1000000000" inputmode="numeric" required></label>
+            <label>Категория<select name="category" id="market-edit-category" required></select></label>
+            <label>Город<input name="city" maxlength="80" list="market-cities" required></label>
+            <label>Район <small>необязательно</small><input name="district" maxlength="80" placeholder="Без точного адреса"></label>
+          </div>
+          <label>Описание<textarea name="description" rows="4" maxlength="2500" required></textarea></label>
+          <div class="market-form"><h2>Фотографии</h2>
+            <p class="helper">До пяти фото. Первое станет обложкой.</p>
+            <label class="market-upload">Добавить фото<input id="market-photo-input" type="file" accept="image/jpeg,image/png,image/webp,.heic,.heif" multiple></label>
+            <div id="market-photo-draft" class="market-photo-draft"></div>
+          </div>
+          <label>Связь в Telegram<select name="contact" id="market-contact-choice" required><option value="bot">Через бота Lotik</option></select></label>
+          <p class="helper">Для переписки через бота откройте с ним чат и нажмите «Старт».</p>
+          <label class="market-check"><input name="acceptRules" type="checkbox" required> Я размещаю законный товар. Запрещены оружие, наркотики, подделки, мошенничество и опасный контент.</label>
+          <button class="primary" id="market-editor-save" type="submit">Отправить на проверку</button>
+        </form>
+      </section>
+      <section id="market-detail" class="view panel-view" hidden>
+        <button class="secondary" id="market-detail-back" type="button">← Назад</button>
+        <div id="market-detail-body"></div>
+      </section>
+      <section id="market-mine" class="view panel-view" hidden>
+        <button class="secondary" type="button" data-page="account">← Кабинет</button>
+        <h1>Мои объявления</h1>
+        <button class="primary" id="market-mine-create" type="button">＋ Подать объявление</button>
+        <div class="market-grid" id="market-mine-list"></div>
+        <button class="secondary more" id="market-mine-more" type="button" hidden>Показать ещё</button>
+      </section>
+      <section id="market-moderation" class="view panel-view" hidden>
+        <button class="secondary" type="button" data-page="account">← Кабинет</button>
+        <h1>Модерация Маркета</h1>
+        <label>Очередь <select id="market-moderation-queue"><option value="pending">На проверке</option><option value="reports">Жалобы</option><option value="all">Все объявления</option></select></label>
+        <div class="market-grid" id="market-moderation-list"></div>
+        <button class="secondary more" id="market-moderation-more" type="button" hidden>Показать ещё</button>
+      </section>
+      <datalist id="market-cities"></datalist>
       <section id="feed" class="view" hidden>
+        <button class="secondary" type="button" data-page="saved">← Избранное</button>
         <div class="hero">
           <div class="hero-text"><p class="eyebrow"><span class="live-dot"></span> Лента Авито</p><h1>Поиск на Авито</h1><p>Введите товар и выберите город.</p></div>
           <div class="radar" aria-hidden="true"><i></i><i></i><i></i><b></b><b></b><span></span></div>
@@ -128,7 +198,12 @@
       </section>
       <section id="saved" class="view panel-view" hidden>
         <h1>Избранное</h1><p class="subtext">Объявления, которые вы сохранили.</p>
-        <div id="saved-ads" class="list"></div><button type="button" class="secondary more" id="next-saved" hidden>Показать ещё</button>
+        <div class="market-actions"><button type="button" class="secondary" id="favorite-market" aria-pressed="true">Маркет</button><button type="button" class="secondary" id="favorite-avito" aria-pressed="false">Авито</button></div>
+        <div id="saved-market"><div class="market-grid" id="market-favorites-list"></div><button type="button" class="secondary more" id="market-favorites-more" hidden>Показать ещё</button></div>
+        <div id="saved-avito" hidden>
+          <button type="button" class="secondary" data-page="feed">Поиск на Авито</button>
+          <div id="saved-ads" class="list"></div><button type="button" class="secondary more" id="next-saved" hidden>Показать ещё</button>
+        </div>
       </section>
       <section id="plans" class="view panel-view" hidden>
         <h1>Подписка</h1>
@@ -173,8 +248,25 @@
           <button type="button" id="check-payment" class="secondary web-only" hidden>Проверить оплату</button> <button type="button" id="logout" class="secondary web-only">Выйти</button>
           <p id="support" class="helper" hidden></p>
         </div>
+        <div class="card market-account">
+          <h2>Мои объявления</h2>
+          <button type="button" class="secondary" data-page="market-mine">Управлять объявлениями</button>
+          <div class="web-only market-form" id="market-web-link">
+            <button type="button" class="secondary" id="market-link-generate">Подтвердить Telegram</button>
+            <p class="helper" id="market-web-code" hidden></p>
+          </div>
+          <details class="market-extra mini-only-market">
+            <summary>Связать с веб-аккаунтом</summary>
+            <form class="market-form" id="market-link-redeem">
+              <label>Код из кабинета на сайте<input name="code" maxlength="20" required autocomplete="off"></label>
+              <label class="market-check"><input name="confirm" type="checkbox" required> Это мой веб-аккаунт</label>
+              <button class="secondary" type="submit">Подтвердить</button>
+            </form>
+          </details>
+        </div>
         <div class="card owner" id="owner" hidden>
           <h2>Панель владельца</h2>
+          <button class="secondary" type="button" data-page="market-moderation">Модерация Маркета</button>
           <div id="owner-overview" hidden>
             <h3>Веб-подписки</h3>
             <dl><div><dt>Выручка на сайте</dt><dd id="balance">—</dd></div><div><dt>Профили сайта</dt><dd id="accounts">—</dd></div><div><dt>Действующие платные доступы</dt><dd id="active-web-accounts">—</dd></div></dl>
@@ -211,7 +303,7 @@
     </main>
     <nav id="nav" class="nav" aria-label="Разделы" hidden>
       <button type="button" data-page="watch-view" aria-current="page"><span aria-hidden="true">◉</span>Главная</button>
-      <button type="button" data-page="feed"><span aria-hidden="true">▤</span>Лента</button>
+      <button type="button" data-page="market" class="market-nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 10 5 4h14l2 6v2a3 3 0 0 1-5 2 3 3 0 0 1-4 0 3 3 0 0 1-4 0 3 3 0 0 1-5-2v-2Zm2 5v5h14v-5M9 20v-5m6 5v-5M3 10h18"/></svg><span>Маркет<small>Lotik</small></span></button>
       <button type="button" data-page="saved"><span aria-hidden="true">♡</span>Избранное</button>
       <button type="button" data-page="plans"><span aria-hidden="true">☆</span>Подписка</button>
       <button type="button" data-page="account"><span aria-hidden="true">◎</span>Кабинет</button>
